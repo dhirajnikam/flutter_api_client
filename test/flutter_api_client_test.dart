@@ -103,6 +103,22 @@ void main() {
       await storage.setAccessToken(null);
       expect(await storage.getAccessToken(), isNull);
     });
+
+    test('CachedTokenStorage returns from memory first', () async {
+      final storage = CachedTokenStorage(MemoryTokenStorage(accessToken: 'cached'));
+      expect(await storage.getAccessToken(), 'cached');
+      storage.updateAccessToken('new');
+      expect(await storage.getAccessToken(), 'new');
+    });
+
+    test('CachedTokenStorage updateAccessToken persists in background', () async {
+      final inner = MemoryTokenStorage();
+      final storage = CachedTokenStorage(inner);
+      storage.updateAccessToken('immediate');
+      expect(await storage.getAccessToken(), 'immediate');
+      await Future.delayed(Duration(milliseconds: 10));
+      expect(await inner.getAccessToken(), 'immediate');
+    });
   });
 
   group('RequestOptions', () {

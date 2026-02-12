@@ -80,6 +80,25 @@ final config = ApiClientConfig.withStorage(
 final apiClient = ApiClient(config);
 ```
 
+### With CachedTokenStorage (use token first, store in background)
+
+When storage is slow (SharedPreferences, SecureStorage), wrap it with `CachedTokenStorage`:
+- **get**: Returns from memory first; loads from storage only on cache miss.
+- **set**: Updates memory immediately, persists to storage in background.
+
+```dart
+final storage = CachedTokenStorage(MyTokenStorage(prefs));
+final config = ApiClientConfig.withStorage(
+  baseUrl: 'https://api.example.com/api/v1',
+  tokenStorage: storage,
+);
+final apiClient = ApiClient(config);
+
+// After refresh API: use token immediately, store in background
+storage.updateAccessToken(newToken);  // returns instantly
+storage.updateRefreshToken(newRefreshToken);
+```
+
 ### Per-request options
 
 ```dart

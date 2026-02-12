@@ -10,3 +10,4 @@ export 'core/api/response_handler.dart';
 export 'core/api/response_handler_interface.dart';
 export 'core/api/token_storage.dart';
 export 'core/api/memory_token_storage.dart';
+export 'core/api/cached_token_storage.dart';
