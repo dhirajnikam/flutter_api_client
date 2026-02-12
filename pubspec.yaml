@@ -1,7 +1,9 @@
 name: flutter_api_client
-description: "A new Flutter package project."
+description: "A reusable, extensible HTTP API client for Flutter/Dart apps."
 version: 0.0.1
-homepage:
+homepage: https://github.com/dhirajnikam/flutter_api_client
+repository: https://github.com/dhirajnikam/flutter_api_client
+issue_tracker: https://github.com/dhirajnikam/flutter_api_client/issues
 
 environment:
   sdk: ^3.9.2
@@ -10,6 +12,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  http: ^1.2.2
 
 dev_dependencies:
   flutter_test:
