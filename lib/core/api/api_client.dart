@@ -10,6 +10,9 @@ import 'response_handler.dart';
 import 'response_handler_interface.dart';
 import 'token_storage.dart';
 
+/// Configuration for [ApiClient].
+///
+/// Provide either [getAccessToken] (callback) or [tokenStorage] for auth.
 class ApiClientConfig {
   ApiClientConfig({
     required this.baseUrl,
@@ -73,12 +76,16 @@ class ApiClientConfig {
   );
 }
 
+/// Interface for HTTP API client operations.
 abstract class ApiClientInterface {
+  /// Sends a GET request to [endpoint].
   Future<CustomApiResponse> get(
     String endpoint, {
     bool includeToken = true,
     RequestOptions? options,
   });
+
+  /// Sends a POST request to [endpoint] with [data].
   Future<CustomApiResponse> post(
     String endpoint,
     dynamic data, {
@@ -86,6 +93,8 @@ abstract class ApiClientInterface {
     bool isMultipart = false,
     RequestOptions? options,
   });
+
+  /// Sends a PUT request to [endpoint] with [data].
   Future<CustomApiResponse> put(
     String endpoint,
     dynamic data, {
@@ -93,6 +102,8 @@ abstract class ApiClientInterface {
     bool isMultipart = false,
     RequestOptions? options,
   });
+
+  /// Sends a PATCH request to [endpoint] with [data].
   Future<CustomApiResponse> patch(
     String endpoint,
     dynamic data, {
@@ -100,6 +111,8 @@ abstract class ApiClientInterface {
     bool isMultipart = false,
     RequestOptions? options,
   });
+
+  /// Sends a DELETE request to [endpoint].
   Future<CustomApiResponse> delete(
     String endpoint, {
     bool includeToken = true,
@@ -107,7 +120,11 @@ abstract class ApiClientInterface {
   });
 }
 
+/// HTTP API client with auth, interceptors, and configurable storage.
+///
+/// Use [ApiClientConfig] to configure base URL, token retrieval, and options.
 class ApiClient implements ApiClientInterface {
+  /// Creates an [ApiClient] with the given [config].
   ApiClient(ApiClientConfig config)
     : _config = config,
       _httpService = HttpService(config.baseUrl),

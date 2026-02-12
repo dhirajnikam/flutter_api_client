@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+/// A request that can be cancelled by closing the underlying HTTP client.
 class CancellableRequest<T> {
   CancellableRequest(this._client, this.future);
 
@@ -19,6 +20,7 @@ class CancellableRequest<T> {
   bool get isCancelled => _isCancelled;
 }
 
+/// Low-level HTTP service for sending requests.
 class HttpService {
   HttpService(this.baseUrl);
 

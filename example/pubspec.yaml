@@ -1,0 +1,12 @@
+name: flutter_api_client_example
+description: Example app for flutter_api_client package.
+publish_to: 'none'
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_api_client:
+    path: ../
