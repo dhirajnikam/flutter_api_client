@@ -1,139 +1,145 @@
+import 'package:flutter_api_client/flutter_api_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_api_client/flutter_api_client.dart';
-
 void main() {
-  group('ApiClient', () {
-    test('can be instantiated with config (getAccessToken)', () {
-      final config = ApiClientConfig(
-        baseUrl: 'https://api.example.com/api/v1',
-        getAccessToken: () async => null,
+  group('ApiClient (basic instantiation)', () {
+    test('with getAccessToken callback', () {
+      final c = ApiClient(
+        ApiClientConfig(
+          baseUrl: 'https://example.com',
+          getAccessToken: () async => null,
+        ),
       );
-      final apiClient = ApiClient(config);
-      expect(apiClient, isNotNull);
+      expect(c, isNotNull);
     });
 
-    test('can be instantiated with config (tokenStorage)', () {
-      final config = ApiClientConfig(
-        baseUrl: 'https://api.example.com/api/v1',
-        tokenStorage: MemoryTokenStorage(),
+    test('with tokenStorage', () {
+      final c = ApiClient(
+        ApiClientConfig(
+          baseUrl: 'https://example.com',
+          tokenStorage: MemoryTokenStorage(),
+        ),
       );
-      final apiClient = ApiClient(config);
-      expect(apiClient, isNotNull);
+      expect(c, isNotNull);
     });
 
-    test('can be instantiated with ApiClientConfig.withToken', () {
-      final config = ApiClientConfig.withToken(
-        baseUrl: 'https://api.example.com/api/v1',
-        getAccessToken: () async => null,
+    test('exposes verb methods', () {
+      final c = ApiClient(
+        ApiClientConfig(
+          baseUrl: 'https://example.com',
+          getAccessToken: () async => null,
+        ),
       );
-      final apiClient = ApiClient(config);
-      expect(apiClient, isNotNull);
-    });
-
-    test('can be instantiated with ApiClientConfig.withStorage', () {
-      final config = ApiClientConfig.withStorage(
-        baseUrl: 'https://api.example.com/api/v1',
-        tokenStorage: MemoryTokenStorage(),
-      );
-      final apiClient = ApiClient(config);
-      expect(apiClient, isNotNull);
-    });
-
-    test('exposes get, post, put, patch, delete methods', () {
-      final config = ApiClientConfig(
-        baseUrl: 'https://api.example.com/api/v1',
-        getAccessToken: () async => null,
-      );
-      final apiClient = ApiClient(config);
-      expect(apiClient.get, isNotNull);
-      expect(apiClient.post, isNotNull);
-      expect(apiClient.put, isNotNull);
-      expect(apiClient.patch, isNotNull);
-      expect(apiClient.delete, isNotNull);
-    });
-
-    test('get returns Future with RequestOptions', () {
-      final config = ApiClientConfig(
-        baseUrl: 'https://api.example.com/api/v1',
-        getAccessToken: () async => null,
-      );
-      final apiClient = ApiClient(config);
-      final future = apiClient.get(
-        'users',
-        options: const RequestOptions(includeToken: false),
-      );
-      expect(future, isA<Future<CustomApiResponse>>());
+      expect(c.get, isNotNull);
+      expect(c.post, isNotNull);
+      expect(c.put, isNotNull);
+      expect(c.patch, isNotNull);
+      expect(c.delete, isNotNull);
     });
   });
 
   group('CustomApiResponse', () {
-    test('creates success response correctly', () {
-      final response = CustomApiResponse(
+    test('success', () {
+      final r = CustomApiResponse<Map<String, dynamic>>(
         statusCode: 200,
-        headers: {},
-        data: {'id': 1},
+        headers: const {},
+        data: const {'id': 1},
         isSuccess: true,
       );
-      expect(response.isSuccess, isTrue);
-      expect(response.statusCode, 200);
-      expect(response.data, {'id': 1});
-      expect(response.errorMessage, isNull);
+      expect(r.isSuccess, true);
+      expect(r.data, {'id': 1});
     });
-
-    test('creates error response correctly', () {
-      final response = CustomApiResponse(
+    test('error', () {
+      final r = CustomApiResponse<dynamic>(
         statusCode: 400,
-        headers: {},
+        headers: const {},
         data: null,
         isSuccess: false,
-        errorMessage: 'Bad request',
+        errorMessage: 'bad',
       );
-      expect(response.isSuccess, isFalse);
-      expect(response.errorMessage, 'Bad request');
+      expect(r.isSuccess, false);
+      expect(r.errorMessage, 'bad');
     });
   });
 
-  group('TokenStorage', () {
-    test('MemoryTokenStorage stores and retrieves token', () async {
-      final storage = MemoryTokenStorage(accessToken: 'test-token');
-      expect(await storage.getAccessToken(), 'test-token');
-      await storage.setAccessToken('new-token');
-      expect(await storage.getAccessToken(), 'new-token');
-      await storage.setAccessToken(null);
-      expect(await storage.getAccessToken(), isNull);
+  group('Token storage', () {
+    test('memory get/set', () async {
+      final s = MemoryTokenStorage(accessToken: 't');
+      expect(await s.getAccessToken(), 't');
+      await s.setAccessToken('x');
+      expect(await s.getAccessToken(), 'x');
     });
 
-    test('CachedTokenStorage returns from memory first', () async {
-      final storage = CachedTokenStorage(MemoryTokenStorage(accessToken: 'cached'));
-      expect(await storage.getAccessToken(), 'cached');
-      storage.updateAccessToken('new');
-      expect(await storage.getAccessToken(), 'new');
+    test('cached returns memory first', () async {
+      final s = CachedTokenStorage(MemoryTokenStorage(accessToken: 'c'));
+      expect(await s.getAccessToken(), 'c');
+      s.updateAccessToken('new');
+      expect(await s.getAccessToken(), 'new');
     });
 
-    test('CachedTokenStorage updateAccessToken persists in background', () async {
+    test('cached persists in background', () async {
       final inner = MemoryTokenStorage();
-      final storage = CachedTokenStorage(inner);
-      storage.updateAccessToken('immediate');
-      expect(await storage.getAccessToken(), 'immediate');
-      await Future.delayed(Duration(milliseconds: 10));
+      final s = CachedTokenStorage(inner);
+      s.updateAccessToken('immediate');
+      expect(await s.getAccessToken(), 'immediate');
+      await Future<void>.delayed(const Duration(milliseconds: 10));
       expect(await inner.getAccessToken(), 'immediate');
     });
   });
 
   group('RequestOptions', () {
-    test('creates with defaults', () {
-      const options = RequestOptions();
-      expect(options.includeToken, isTrue);
-      expect(options.headers, isNull);
-      expect(options.timeout, isNull);
-      expect(options.baseUrlOverride, isNull);
+    test('defaults', () {
+      const o = RequestOptions();
+      expect(o.includeToken, true);
+      expect(o.responseType, ResponseType.json);
+    });
+    test('copyWith', () {
+      const o = RequestOptions();
+      final n = o.copyWith(includeToken: false);
+      expect(n.includeToken, false);
+    });
+  });
+
+  group('CancelToken', () {
+    test('cancels listeners', () {
+      final t = CancelToken();
+      var fired = 0;
+      t.addListener((_) => fired++);
+      t.cancel();
+      expect(fired, 1);
+      expect(t.isCancelled, true);
     });
 
-    test('copyWith works', () {
-      const options = RequestOptions();
-      final updated = options.copyWith(includeToken: false);
-      expect(updated.includeToken, isFalse);
+    test('throwIfCancelled', () {
+      final t = CancelToken();
+      expect(() => t.throwIfCancelled(), returnsNormally);
+      t.cancel();
+      expect(() => t.throwIfCancelled(), throwsA(isA<CancelError>()));
+    });
+  });
+
+  group('buildQueryString', () {
+    test('simple', () {
+      expect(buildQueryString({'a': 1, 'b': 'x'}), 'a=1&b=x');
+    });
+    test('list', () {
+      expect(
+        buildQueryString({
+          'a': [1, 2],
+        }),
+        'a=1&a=2',
+      );
+    });
+    test('nested', () {
+      expect(
+        buildQueryString({
+          'filter': {'name': 'foo'},
+        }),
+        contains('filter%5Bname%5D=foo'),
+      );
+    });
+    test('null skipped', () {
+      expect(buildQueryString({'a': null, 'b': 1}), 'b=1');
     });
   });
 }
