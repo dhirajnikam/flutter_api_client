@@ -1,4 +1,8 @@
 include: package:flutter_lints/flutter.yaml
 
-# Additional information about this file can be found at
-# https://dart.dev/guides/language/analysis-options
+analyzer:
+  errors:
+    # RegExp is marked deprecated in Dart 3.10 but is still the canonical
+    # way to write pattern matching today. Suppress until the language ships
+    # a non-deprecated replacement.
+    deprecated_member_use: ignore

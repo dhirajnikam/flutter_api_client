@@ -1,13 +1,70 @@
-/// Flutter API Client - A reusable HTTP API client for Flutter/Dart apps.
+/// Flutter API Client — a reusable, extensible HTTP client for Flutter/Dart.
+///
+/// 1.0.0 highlights:
+///   * Typed `ApiResult<T>` / generic `CustomApiResponse<T>` with decoders
+///   * Real multi-request `CancelToken`
+///   * `RetryPolicy` (exponential backoff + jitter + `Retry-After`)
+///   * Concurrent-safe auth refresh queue
+///   * Cache interceptor (memory store + pluggable disk) with cache modes
+///   * Request deduplication
+///   * cURL + pretty loggers (with redaction)
+///   * Pluggable `HttpAdapter` and a built-in `MockAdapter`
+///   * Spec-driven endpoints: one [ApiSpec] generates a mock adapter,
+///     OpenAPI, an API reference, and a backend implementation guide.
 library;
 
-export 'core/api/api_client.dart';
-export 'core/api/custom_api_response.dart';
-export 'core/api/http_service.dart';
-export 'core/api/interceptors.dart';
-export 'core/api/request_options.dart';
-export 'core/api/response_handler.dart';
-export 'core/api/response_handler_interface.dart';
-export 'core/api/token_storage.dart';
-export 'core/api/memory_token_storage.dart';
-export 'core/api/cached_token_storage.dart';
+// Core
+export 'src/core/api_client.dart';
+export 'src/core/api_exception.dart';
+export 'src/core/api_response.dart';
+export 'src/core/api_result.dart';
+export 'src/core/cancel_token.dart';
+export 'src/core/form_data.dart';
+export 'src/core/query.dart';
+export 'src/core/request_options.dart';
+export 'src/core/response_type.dart';
+
+// Auth
+export 'src/auth/auth_interceptor.dart';
+export 'src/auth/cached_token_storage.dart';
+export 'src/auth/memory_token_storage.dart';
+export 'src/auth/token_storage.dart';
+
+// HTTP
+export 'src/http/default_http_adapter.dart';
+export 'src/http/http_adapter.dart';
+export 'src/http/mock_adapter.dart';
+
+// Interceptors
+export 'src/interceptors/interceptor.dart';
+export 'src/interceptors/interceptor_chain.dart';
+export 'src/interceptors/cache/cache_interceptor.dart';
+export 'src/interceptors/cache/cache_policy.dart';
+export 'src/interceptors/cache/cache_store.dart';
+export 'src/interceptors/cache/memory_cache_store.dart';
+export 'src/interceptors/dedup/dedup_interceptor.dart';
+export 'src/interceptors/logging/curl_logger.dart';
+export 'src/interceptors/logging/pretty_logger.dart';
+export 'src/interceptors/offline/offline_queue.dart';
+export 'src/interceptors/offline/offline_queue_interceptor.dart';
+export 'src/interceptors/retry/retry_interceptor.dart';
+export 'src/interceptors/retry/retry_policy.dart';
+
+// Response
+export 'src/response/response_handler.dart';
+export 'src/response/response_handler_interface.dart';
+
+// Spec
+export 'src/spec/api_spec.dart';
+export 'src/spec/backend_guide_generator.dart';
+export 'src/spec/examples.dart';
+export 'src/spec/graphql_spec.dart';
+export 'src/spec/markdown_doc_generator.dart';
+export 'src/spec/openapi_generator.dart';
+export 'src/spec/schema.dart';
+export 'src/spec/spec_mock_adapter.dart';
+
+// GraphQL
+export 'src/graphql/graphql_client.dart';
+export 'src/graphql/graphql_error.dart';
+export 'src/graphql/graphql_response.dart';
