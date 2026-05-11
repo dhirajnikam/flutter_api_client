@@ -56,9 +56,13 @@ class RequestOptions {
   final ProgressCallback? onReceiveProgress;
 
   /// Override retry policy for this request.
+  /// Pass a [RetryPolicy] from `package:flutter_api_client/flutter_api_client.dart`.
+  /// Typed as [Object?] to avoid a circular import between core and interceptors.
   final Object? retryPolicy;
 
   /// Override cache policy for this request.
+  /// Pass a [CachePolicy] from `package:flutter_api_client/flutter_api_client.dart`.
+  /// Typed as [Object?] to avoid a circular import between core and interceptors.
   final Object? cachePolicy;
 
   /// Arbitrary tag for interceptors to inspect.

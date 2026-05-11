@@ -98,10 +98,8 @@ class ApiSpec {
       endpoint: endpoint,
       description: description,
     );
-    if (graphqlSection != null) {
-      section.endpoint = endpoint;
-      if (description != null) section.description = description;
-    }
+    section.endpoint = endpoint;
+    if (description != null) section.description = description;
     build(section);
     return section;
   }

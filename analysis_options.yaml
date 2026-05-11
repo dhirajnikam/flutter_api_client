@@ -2,7 +2,13 @@ include: package:flutter_lints/flutter.yaml
 
 analyzer:
   errors:
-    # RegExp is marked deprecated in Dart 3.10 but is still the canonical
-    # way to write pattern matching today. Suppress until the language ships
-    # a non-deprecated replacement.
-    deprecated_member_use: ignore
+    deprecated_member_use_from_same_package: ignore
+
+linter:
+  rules:
+    - prefer_const_constructors
+    - prefer_final_fields
+    - prefer_final_locals
+    - avoid_redundant_argument_values
+    - cancel_subscriptions
+    - close_sinks

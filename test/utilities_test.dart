@@ -33,7 +33,8 @@ void main() {
 
     test('repeats list values as bracketed fields', () {
       final fd = FormData.fromMap({'tags': ['dart', 'flutter']});
-      expect(fd.fields.containsKey('tags[]'), true);
+      expect(fd.fields['tags[0]'], 'dart');
+      expect(fd.fields['tags[1]'], 'flutter');
     });
 
     test('isEmpty and isNotEmpty reflect content', () {

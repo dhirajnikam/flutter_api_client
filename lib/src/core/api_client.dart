@@ -29,13 +29,7 @@ class ApiClientConfig {
     this.responseHandler,
     this.interceptors = const [],
     this.adapter,
-  }) : assert(
-         getAccessToken != null ||
-             tokenStorage != null ||
-             interceptors.isNotEmpty ||
-             true,
-         'Auth optional in 1.0',
-       );
+  });
 
   final String baseUrl;
   final TokenStorage? tokenStorage;

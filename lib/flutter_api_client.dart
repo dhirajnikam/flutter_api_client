@@ -31,7 +31,7 @@ export 'src/auth/memory_token_storage.dart';
 export 'src/auth/token_storage.dart';
 
 // HTTP
-export 'src/http/default_http_adapter.dart';
+export 'src/http/default_http_adapter.dart' hide encodeBody;
 export 'src/http/http_adapter.dart';
 export 'src/http/mock_adapter.dart';
 

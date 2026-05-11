@@ -6,7 +6,7 @@ write queue, structured logging, and a **spec-driven endpoint system** that
 turns one `ApiSpec` into a working mock adapter, an OpenAPI 3.1 document,
 a Markdown API reference, and a backend implementation guide.
 
-[![pub package](https://img.shields.io/badge/pub-1.0.0-blue)](https://pub.dev/packages/flutter_api_client)
+[![pub package](https://img.shields.io/pub/v/flutter_api_client.svg)](https://pub.dev/packages/flutter_api_client)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-107%20passing-brightgreen)](#test-suite)
 

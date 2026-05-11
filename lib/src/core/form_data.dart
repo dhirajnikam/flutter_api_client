@@ -21,8 +21,8 @@ class FormData {
       } else if (value is List<http.MultipartFile>) {
         files.addAll(value);
       } else if (value is List) {
-        for (final v in value) {
-          fields['$key[]'] = '$v';
+        for (var i = 0; i < value.length; i++) {
+          fields['$key[$i]'] = '${value[i]}';
         }
       } else {
         fields[key] = '$value';
