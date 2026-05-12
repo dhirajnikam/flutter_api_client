@@ -35,6 +35,14 @@ void main() {
     test('single valid name works', () {
       expect(parseOnly('backend'), equals(['backend']));
     });
+
+    test("accepts 'tests' as a valid generator", () {
+      expect(parseOnly('tests'), equals(['tests']));
+    });
+
+    test("accepts 'tests' mixed with openapi", () {
+      expect(parseOnly('openapi,tests'), containsAll(['openapi', 'tests']));
+    });
   });
 
   group('findGeneratedSpecFile', () {

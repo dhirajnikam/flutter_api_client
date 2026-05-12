@@ -16,6 +16,8 @@ void main(List<String> args) async {
         help: 'Skip openapi.json (YAML only)')
     ..addFlag('no-yaml', negatable: false,
         help: 'Skip openapi.yaml (JSON only)')
+    ..addFlag('tests', negatable: false,
+        help: 'Shorthand for --only tests; writes test/api_spec_test.dart')
     ..addFlag('dry-run', negatable: false,
         help: 'Print output paths without writing files')
     ..addFlag('help', abbr: 'h', negatable: false,
@@ -49,6 +51,9 @@ void main(List<String> args) async {
   final noJson = parsed['no-json'] as bool;
   final noYaml = parsed['no-yaml'] as bool;
   final dryRun = parsed['dry-run'] as bool;
+
+  final testsShorthand = parsed['tests'] as bool;
+  if (testsShorthand) generators = ['tests'];
 
   // Locate the generated spec file.
   final specFile = findGeneratedSpecFile(Directory.current.path);
@@ -149,6 +154,7 @@ String _runnerSource({
   final genOpenapi = generators.contains('openapi');
   final genReference = generators.contains('reference');
   final genBackend = generators.contains('backend');
+  final genTests = generators.contains('tests');
 
   return '''
 // AUTO-GENERATED — deleted after use. Do not commit.
@@ -191,6 +197,20 @@ void main() {
     );
     write('backend-guide.md',
         BackendGuideGenerator(spec, framework: fw).generate());
+  }
+  if (${genTests}) {
+    final testDir = Directory('test');
+    final testContent = TestGenerator(spec).generate();
+    final testPath = 'test/api_spec_test.dart';
+    final testKb = (testContent.length / 1024).toStringAsFixed(1);
+    if (${dryRun}) {
+      stdout.writeln('  (dry-run) \$testPath  (\$testKb KB)');
+    } else {
+      testDir.createSync(recursive: true);
+      File(testPath).writeAsStringSync(testContent);
+      stdout.writeln('  ✓ \$testPath  (\$testKb KB)');
+    }
+    count++;
   }
 
   stdout.writeln(

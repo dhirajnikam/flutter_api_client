@@ -1,6 +1,6 @@
 import 'dart:io';
 
-const _validGenerators = ['openapi', 'reference', 'backend'];
+const _validGenerators = ['openapi', 'reference', 'backend', 'tests'];
 
 /// Parses the `--only` flag into a list of generator names.
 /// Returns all generators when [only] is null.
