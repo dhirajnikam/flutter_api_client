@@ -2,7 +2,7 @@ builders:
   api_spec_builder:
     import: "package:flutter_api_client/src/gen/api_spec_builder.dart"
     builder_factories: ["apiSpecBuilder"]
-    build_extensions: {".dart": [".g.dart"]}
+    build_extensions: {".dart": [".api_spec_entry.g.part"]}
     auto_apply: dependents
-    build_to: source
+    build_to: cache
     applies_builders: ["source_gen|combining_builder"]
