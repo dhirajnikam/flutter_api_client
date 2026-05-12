@@ -43,6 +43,56 @@ a Markdown API reference, and a backend implementation guide.
 
 ---
 
+## Quick start — 3 steps
+
+**1. Add the dependency**
+
+```yaml
+dependencies:
+  flutter_api_client: ^2.0.0
+
+dev_dependencies:
+  build_runner: ^2.4.0
+```
+
+**2. Define your spec and generate files**
+
+```dart
+// lib/my_api.dart
+import 'package:flutter_api_client/flutter_api_client.dart';
+part 'my_api.g.dart';
+
+@ApiSpecEntry()
+final myApi = ApiSpec(
+  title: 'My API',
+  version: '1.0.0',
+  baseUrl: 'https://api.example.com',
+)..group('Users', (g) {
+    g.endpoint('GET /users', responses: [ResponseExample.ok({'users': []})]);
+  });
+```
+
+```bash
+dart run build_runner build
+# Generates:
+#   lib/my_api.g.dart         — spec accessor
+#   lib/my_api.test.g.dart    — runnable test scaffold
+```
+
+**3. Generate docs and a full test suite**
+
+```bash
+dart run flutter_api_client:gen
+# Writes: docs/api/openapi.json, openapi.yaml, api-reference.md, backend-guide.md
+
+dart run flutter_api_client:gen --only tests
+# Writes: test/api_spec_test.dart  (complete runnable tests for every endpoint)
+
+dart test --concurrency=8
+```
+
+---
+
 ## Why this package
 
 | Feature | `dio` | `flutter_api_client` 1.0 |
