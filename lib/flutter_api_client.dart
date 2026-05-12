@@ -63,6 +63,9 @@ export 'src/spec/openapi_generator.dart';
 export 'src/spec/schema.dart';
 export 'src/spec/spec_mock_adapter.dart';
 
+// Gen
+export 'src/gen/api_spec_entry.dart';
+
 // GraphQL
 export 'src/graphql/graphql_client.dart';
 export 'src/graphql/graphql_error.dart';
