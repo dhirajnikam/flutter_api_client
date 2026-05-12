@@ -66,8 +66,14 @@ void main(List<String> args) async {
   final runnerDir = '$cwd/tool';
   final runnerPath = '$runnerDir/.flutter_api_client_runner.dart';
 
+  // The generated spec file is a `.g.dart` part file; the runner must import
+  // the parent `.dart` file that contains the actual declarations.
+  final parentSpecFile = specFile.endsWith('.g.dart')
+      ? specFile.replaceFirst(RegExp(r'\.g\.dart$'), '.dart')
+      : specFile;
+
   // Make specFile path relative to runnerDir for the import.
-  final specRelative = _relativePath(from: runnerDir, to: specFile);
+  final specRelative = _relativePath(from: runnerDir, to: parentSpecFile);
 
   // Write the temp runner.
   Directory(runnerDir).createSync(recursive: true);
