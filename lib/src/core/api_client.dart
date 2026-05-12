@@ -9,7 +9,6 @@ import '../interceptors/interceptor_chain.dart';
 import '../response/response_handler.dart';
 import '../response/response_handler_interface.dart';
 import 'api_exception.dart';
-import 'api_response.dart';
 import 'api_result.dart';
 import 'form_data.dart';
 import 'query.dart';
@@ -91,14 +90,14 @@ class ApiClientConfig {
 
 /// Public API of an HTTP client.
 abstract class ApiClientInterface {
-  Future<CustomApiResponse<T>> get<T>(
+  Future<ApiResult<T>> get<T>(
     String endpoint, {
     bool includeToken = true,
     RequestOptions? options,
     T Function(Object json)? decoder,
   });
 
-  Future<CustomApiResponse<T>> post<T>(
+  Future<ApiResult<T>> post<T>(
     String endpoint,
     dynamic data, {
     bool includeToken = true,
@@ -107,7 +106,7 @@ abstract class ApiClientInterface {
     T Function(Object json)? decoder,
   });
 
-  Future<CustomApiResponse<T>> put<T>(
+  Future<ApiResult<T>> put<T>(
     String endpoint,
     dynamic data, {
     bool includeToken = true,
@@ -116,7 +115,7 @@ abstract class ApiClientInterface {
     T Function(Object json)? decoder,
   });
 
-  Future<CustomApiResponse<T>> patch<T>(
+  Future<ApiResult<T>> patch<T>(
     String endpoint,
     dynamic data, {
     bool includeToken = true,
@@ -125,7 +124,7 @@ abstract class ApiClientInterface {
     T Function(Object json)? decoder,
   });
 
-  Future<CustomApiResponse<T>> delete<T>(
+  Future<ApiResult<T>> delete<T>(
     String endpoint, {
     bool includeToken = true,
     RequestOptions? options,
@@ -174,8 +173,7 @@ class ApiClient implements ApiClientInterface {
 
   HttpAdapter get adapter => _adapter;
 
-  /// Returns a typed result. Recommended for new code.
-  Future<ApiResult<T>> request<T>(
+  Future<ApiResult<T>> _request<T>(
     String method,
     String endpoint, {
     dynamic data,
@@ -221,142 +219,59 @@ class ApiClient implements ApiClientInterface {
   }
 
   @override
-  Future<CustomApiResponse<T>> get<T>(
+  Future<ApiResult<T>> get<T>(
     String endpoint, {
     bool includeToken = true,
     RequestOptions? options,
     T Function(Object json)? decoder,
-  }) => _makeRequest<T>(
-    'GET',
-    endpoint,
-    includeToken: includeToken,
-    options: options,
-    decoder: decoder,
-  );
+  }) => _request<T>('GET', endpoint,
+        includeToken: includeToken, options: options, decoder: decoder);
 
   @override
-  Future<CustomApiResponse<T>> post<T>(
+  Future<ApiResult<T>> post<T>(
     String endpoint,
     dynamic data, {
     bool includeToken = true,
     bool isMultipart = false,
     RequestOptions? options,
     T Function(Object json)? decoder,
-  }) => _makeRequest<T>(
-    'POST',
-    endpoint,
-    data: data,
-    includeToken: includeToken,
-    isMultipart: isMultipart,
-    options: options,
-    decoder: decoder,
-  );
+  }) => _request<T>('POST', endpoint,
+        data: data, includeToken: includeToken, isMultipart: isMultipart,
+        options: options, decoder: decoder);
 
   @override
-  Future<CustomApiResponse<T>> put<T>(
+  Future<ApiResult<T>> put<T>(
     String endpoint,
     dynamic data, {
     bool includeToken = true,
     bool isMultipart = false,
     RequestOptions? options,
     T Function(Object json)? decoder,
-  }) => _makeRequest<T>(
-    'PUT',
-    endpoint,
-    data: data,
-    includeToken: includeToken,
-    isMultipart: isMultipart,
-    options: options,
-    decoder: decoder,
-  );
+  }) => _request<T>('PUT', endpoint,
+        data: data, includeToken: includeToken, isMultipart: isMultipart,
+        options: options, decoder: decoder);
 
   @override
-  Future<CustomApiResponse<T>> patch<T>(
+  Future<ApiResult<T>> patch<T>(
     String endpoint,
     dynamic data, {
     bool includeToken = true,
     bool isMultipart = false,
     RequestOptions? options,
     T Function(Object json)? decoder,
-  }) => _makeRequest<T>(
-    'PATCH',
-    endpoint,
-    data: data,
-    includeToken: includeToken,
-    isMultipart: isMultipart,
-    options: options,
-    decoder: decoder,
-  );
+  }) => _request<T>('PATCH', endpoint,
+        data: data, includeToken: includeToken, isMultipart: isMultipart,
+        options: options, decoder: decoder);
 
   @override
-  Future<CustomApiResponse<T>> delete<T>(
+  Future<ApiResult<T>> delete<T>(
     String endpoint, {
     bool includeToken = true,
     RequestOptions? options,
     T Function(Object json)? decoder,
-  }) => _makeRequest<T>(
-    'DELETE',
-    endpoint,
-    includeToken: includeToken,
-    options: options,
-    decoder: decoder,
-  );
+  }) => _request<T>('DELETE', endpoint,
+        includeToken: includeToken, options: options, decoder: decoder);
 
-  Future<CustomApiResponse<T>> _makeRequest<T>(
-    String method,
-    String endpoint, {
-    dynamic data,
-    bool includeToken = true,
-    bool isMultipart = false,
-    RequestOptions? options,
-    T Function(Object json)? decoder,
-  }) async {
-    try {
-      final res = await _send(
-        method: method,
-        endpoint: endpoint,
-        data: data,
-        includeToken: includeToken,
-        isMultipart: isMultipart,
-        options: options,
-      );
-      final responseType = options?.responseType ?? ResponseType.json;
-      final parsed = _decode<T>(res, responseType, decoder);
-      final isSuccess = res.statusCode >= 200 && res.statusCode < 300;
-      return CustomApiResponse<T>(
-        statusCode: res.statusCode,
-        headers: res.headers,
-        data: parsed as T?,
-        isSuccess: isSuccess,
-        errorMessage: isSuccess ? null : _responseHandler.handleResponse(res),
-        rawBody: res.bodyBytes,
-      );
-    } on CancelError catch (e) {
-      return CustomApiResponse<T>(
-        statusCode: 0,
-        headers: const {},
-        data: null,
-        isSuccess: false,
-        errorMessage: e.message,
-      );
-    } on ApiException catch (e) {
-      return CustomApiResponse<T>(
-        statusCode: 0,
-        headers: const {},
-        data: null,
-        isSuccess: false,
-        errorMessage: e.message,
-      );
-    } catch (e) {
-      return CustomApiResponse<T>(
-        statusCode: 0,
-        headers: const {},
-        data: null,
-        isSuccess: false,
-        errorMessage: e.toString(),
-      );
-    }
-  }
 
   Future<AdapterResponse> _send({
     required String method,
