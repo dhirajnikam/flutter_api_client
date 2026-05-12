@@ -63,9 +63,8 @@ class PrettyLogger extends Interceptor {
       try {
         final body = utf8.decode(res.bodyBytes);
         if (body.isNotEmpty) {
-          final preview = body.length > 2000
-              ? '${body.substring(0, 2000)}…'
-              : body;
+          final preview =
+              body.length > 2000 ? '${body.substring(0, 2000)}…' : body;
           buf.writeln(_c(_grey, '│ body: $preview'));
         }
       } catch (_) {}

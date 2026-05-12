@@ -37,23 +37,25 @@ class ResponseExample {
     Object? body, {
     Schema? schema,
     String? description,
-  }) => ResponseExample(
-    statusCode: 200,
-    body: body,
-    schema: schema,
-    description: description,
-  );
+  }) =>
+      ResponseExample(
+        statusCode: 200,
+        body: body,
+        schema: schema,
+        description: description,
+      );
 
   factory ResponseExample.created(
     Object? body, {
     Schema? schema,
     String? description,
-  }) => ResponseExample(
-    statusCode: 201,
-    body: body,
-    schema: schema,
-    description: description,
-  );
+  }) =>
+      ResponseExample(
+        statusCode: 201,
+        body: body,
+        schema: schema,
+        description: description,
+      );
 
   factory ResponseExample.noContent({String? description}) =>
       ResponseExample(statusCode: 204, description: description);
@@ -63,10 +65,11 @@ class ResponseExample {
     Object body, {
     Schema? schema,
     String? description,
-  }) => ResponseExample(
-    statusCode: statusCode,
-    body: body,
-    schema: schema,
-    description: description,
-  );
+  }) =>
+      ResponseExample(
+        statusCode: statusCode,
+        body: body,
+        schema: schema,
+        description: description,
+      );
 }

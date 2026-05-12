@@ -63,10 +63,13 @@ void main() {
           adapter: SpecMockAdapter(_sampleSpec()),
         ),
       );
-      final res = await client.post<Map<String, dynamic>>('auth/login', const {
-        'email': 'a@b.com',
-        'password': 'secret123',
-      }, includeToken: false);
+      final res = await client.post<Map<String, dynamic>>(
+          'auth/login',
+          const {
+            'email': 'a@b.com',
+            'password': 'secret123',
+          },
+          includeToken: false);
       expect(res.isSuccess, true);
       expect(res.data, contains('token'));
     });
@@ -78,10 +81,13 @@ void main() {
           adapter: SpecMockAdapter(_sampleSpec()),
         ),
       );
-      final res = await client.post<dynamic>('auth/login', const {
-        'email': 'a@b.com',
-        'password': 'x',
-      }, includeToken: false);
+      final res = await client.post<dynamic>(
+          'auth/login',
+          const {
+            'email': 'a@b.com',
+            'password': 'x',
+          },
+          includeToken: false);
       expect(res.statusCode, 422);
     });
 
@@ -95,10 +101,13 @@ void main() {
           ),
         ),
       );
-      final res = await client.post<dynamic>('auth/login', const {
-        'email': 'a@b.com',
-        'password': 'secret123',
-      }, includeToken: false);
+      final res = await client.post<dynamic>(
+          'auth/login',
+          const {
+            'email': 'a@b.com',
+            'password': 'secret123',
+          },
+          includeToken: false);
       expect(res.statusCode, 401);
     });
   });

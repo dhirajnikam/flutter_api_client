@@ -47,14 +47,15 @@ class GraphQLClient {
     GraphQLDecoder<T>? decoder,
     RequestOptions? options,
     bool includeToken = true,
-  }) => _execute<T>(
-    document: document,
-    variables: variables,
-    operationName: operationName,
-    decoder: decoder,
-    options: options,
-    includeToken: includeToken,
-  );
+  }) =>
+      _execute<T>(
+        document: document,
+        variables: variables,
+        operationName: operationName,
+        decoder: decoder,
+        options: options,
+        includeToken: includeToken,
+      );
 
   Future<GraphQLResponse<T>> mutation<T>(
     String document, {
@@ -63,14 +64,15 @@ class GraphQLClient {
     GraphQLDecoder<T>? decoder,
     RequestOptions? options,
     bool includeToken = true,
-  }) => _execute<T>(
-    document: document,
-    variables: variables,
-    operationName: operationName,
-    decoder: decoder,
-    options: options,
-    includeToken: includeToken,
-  );
+  }) =>
+      _execute<T>(
+        document: document,
+        variables: variables,
+        operationName: operationName,
+        decoder: decoder,
+        options: options,
+        includeToken: includeToken,
+      );
 
   Future<GraphQLResponse<T>> _execute<T>({
     required String document,
@@ -134,11 +136,12 @@ class GraphQLClient {
     required String document,
     Map<String, dynamic>? variables,
     String? operationName,
-  }) => {
-    'query': document,
-    if (variables != null) 'variables': variables,
-    if (operationName != null) 'operationName': operationName,
-  };
+  }) =>
+      {
+        'query': document,
+        if (variables != null) 'variables': variables,
+        if (operationName != null) 'operationName': operationName,
+      };
 
   Future<GraphQLResponse<T>> _post<T>({
     required Map<String, Object?> payload,
@@ -162,7 +165,10 @@ class GraphQLClient {
       );
     }
     // For non-2xx HTTP responses, body lives in HttpError.body.
-    final body = raw.data ?? (raw.error is HttpError ? (raw.error as HttpError).body as Map<String, dynamic>? : null);
+    final body = raw.data ??
+        (raw.error is HttpError
+            ? (raw.error as HttpError).body as Map<String, dynamic>?
+            : null);
     if (body == null) {
       return GraphQLResponse<T>(
         statusCode: raw.statusCode ?? 0,
@@ -174,9 +180,9 @@ class GraphQLClient {
     final errorsRaw = body['errors'];
     final errors = errorsRaw is List
         ? errorsRaw
-              .whereType<Map>()
-              .map((m) => GraphQLError.fromJson(m.cast<String, Object?>()))
-              .toList()
+            .whereType<Map>()
+            .map((m) => GraphQLError.fromJson(m.cast<String, Object?>()))
+            .toList()
         : <GraphQLError>[];
 
     final dataRaw = body['data'];

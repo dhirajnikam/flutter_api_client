@@ -9,12 +9,16 @@ ApiSpec _minimalSpec() => ApiSpec(
         g.endpoint(
           'GET /users',
           summary: 'List users',
-          responses: [ResponseExample.ok({'users': []})],
+          responses: [
+            ResponseExample.ok({'users': []})
+          ],
         );
         g.endpoint(
           'GET /users/{id}',
           pathParams: {'id': Schema.integer(required: true)},
-          responses: [ResponseExample.ok({'id': 1, 'name': 'Alice'})],
+          responses: [
+            ResponseExample.ok({'id': 1, 'name': 'Alice'})
+          ],
         );
       });
 
@@ -48,7 +52,9 @@ ApiSpec _protectedSpec() => ApiSpec(
         g.endpoint(
           'POST /items',
           auth: true,
-          responses: [ResponseExample.created({'id': 1})],
+          responses: [
+            ResponseExample.created({'id': 1})
+          ],
         );
       });
 

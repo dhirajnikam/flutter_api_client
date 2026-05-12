@@ -33,9 +33,8 @@ class AuthInterceptor extends Interceptor {
     if (!req.options.includeToken) return ProceedResult(req);
     final token = await storage.getAccessToken();
     if (token != null && token.isNotEmpty) {
-      req.headers['Authorization'] = authScheme.isEmpty
-          ? token
-          : '$authScheme $token';
+      req.headers['Authorization'] =
+          authScheme.isEmpty ? token : '$authScheme $token';
     }
     return ProceedResult(req);
   }

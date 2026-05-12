@@ -13,11 +13,9 @@ class TestGenerator {
   String generate() {
     final buf = StringBuffer();
     buf.writeln('// GENERATED CODE - DO NOT MODIFY BY HAND');
-    buf.writeln(
-        '// Regenerate: dart run flutter_api_client:gen --only tests');
+    buf.writeln('// Regenerate: dart run flutter_api_client:gen --only tests');
     buf.writeln();
-    buf.writeln(
-        "import 'package:flutter_api_client/flutter_api_client.dart';");
+    buf.writeln("import 'package:flutter_api_client/flutter_api_client.dart';");
     buf.writeln("import 'package:flutter_test/flutter_test.dart';");
     buf.writeln();
 
@@ -47,8 +45,7 @@ class TestGenerator {
         .replaceFirst(RegExp(r'^/'), '');
 
     // Happy path
-    buf.writeln(
-        "    test('${ep.method} ${ep.path} — happy path', () async {");
+    buf.writeln("    test('${ep.method} ${ep.path} — happy path', () async {");
     buf.writeln(_clientSetup(baseUrl, ''));
     buf.writeln(_callLine(ep, concretePath));
     buf.writeln('      expect(res.isSuccess, true);');
@@ -84,8 +81,8 @@ class TestGenerator {
     for (final r in ep.responses.where((r) => !r.isSuccess)) {
       buf.writeln(
           "    test('${ep.method} ${ep.path} — returns ${r.statusCode}', () async {");
-      buf.writeln(_clientSetup(baseUrl,
-          ", statusOverrides: const {'$methodKey': ${r.statusCode}}"));
+      buf.writeln(_clientSetup(
+          baseUrl, ", statusOverrides: const {'$methodKey': ${r.statusCode}}"));
       buf.writeln(_callLine(ep, concretePath));
       buf.writeln('      expect(res.statusCode, ${r.statusCode});');
       buf.writeln('    });');
@@ -105,8 +102,7 @@ class TestGenerator {
       return "      final res = await client.$method<dynamic>('$path');";
     }
     final body = ep.request?.body;
-    final literal =
-        body != null ? _dartLiteral(body) : '<String, dynamic>{}';
+    final literal = body != null ? _dartLiteral(body) : '<String, dynamic>{}';
     return "      final res = await client.$method<dynamic>('$path', $literal);";
   }
 

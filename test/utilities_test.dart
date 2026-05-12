@@ -27,12 +27,16 @@ void main() {
     test('collects List<MultipartFile> into files list', () {
       final f1 = http.MultipartFile.fromString('a', 'x');
       final f2 = http.MultipartFile.fromString('b', 'y');
-      final fd = FormData.fromMap({'attachments': [f1, f2]});
+      final fd = FormData.fromMap({
+        'attachments': [f1, f2]
+      });
       expect(fd.files, hasLength(2));
     });
 
     test('repeats list values as bracketed fields', () {
-      final fd = FormData.fromMap({'tags': ['dart', 'flutter']});
+      final fd = FormData.fromMap({
+        'tags': ['dart', 'flutter']
+      });
       expect(fd.fields['tags[0]'], 'dart');
       expect(fd.fields['tags[1]'], 'flutter');
     });
@@ -83,7 +87,8 @@ void main() {
       expect(uri.toString(), contains('&'));
     });
 
-    test('base URL without trailing slash and endpoint without leading slash', () {
+    test('base URL without trailing slash and endpoint without leading slash',
+        () {
       final uri = buildUri(
         baseUrl: 'https://api.example.com',
         endpoint: 'users',

@@ -159,16 +159,17 @@ class EndpointGroup {
     RequestExample? request,
     ResponseExample? response,
     List<ResponseExample>? responses,
-  }) => _spec.endpoint(
-    methodAndPath,
-    summary: summary,
-    description: description,
-    tag: _tag,
-    auth: auth,
-    pathParams: pathParams,
-    queryParams: queryParams,
-    request: request,
-    response: response,
-    responses: responses,
-  );
+  }) =>
+      _spec.endpoint(
+        methodAndPath,
+        summary: summary,
+        description: description,
+        tag: _tag,
+        auth: auth,
+        pathParams: pathParams,
+        queryParams: queryParams,
+        request: request,
+        response: response,
+        responses: responses,
+      );
 }

@@ -36,16 +36,17 @@ class Schema {
     List<String>? enumValues,
     String? example,
     String? description,
-  }) => Schema(
-    type: 'string',
-    format: format,
-    required: required,
-    minLength: minLength,
-    maxLength: maxLength,
-    enumValues: enumValues,
-    example: example,
-    description: description,
-  );
+  }) =>
+      Schema(
+        type: 'string',
+        format: format,
+        required: required,
+        minLength: minLength,
+        maxLength: maxLength,
+        enumValues: enumValues,
+        example: example,
+        description: description,
+      );
 
   static Schema integer({
     bool required = false,
@@ -53,14 +54,15 @@ class Schema {
     int? maximum,
     int? example,
     String? description,
-  }) => Schema(
-    type: 'integer',
-    required: required,
-    minimum: minimum,
-    maximum: maximum,
-    example: example,
-    description: description,
-  );
+  }) =>
+      Schema(
+        type: 'integer',
+        required: required,
+        minimum: minimum,
+        maximum: maximum,
+        example: example,
+        description: description,
+      );
 
   static Schema number({
     bool required = false,
@@ -68,47 +70,51 @@ class Schema {
     num? maximum,
     num? example,
     String? description,
-  }) => Schema(
-    type: 'number',
-    required: required,
-    minimum: minimum,
-    maximum: maximum,
-    example: example,
-    description: description,
-  );
+  }) =>
+      Schema(
+        type: 'number',
+        required: required,
+        minimum: minimum,
+        maximum: maximum,
+        example: example,
+        description: description,
+      );
 
   static Schema boolean({
     bool required = false,
     bool? example,
     String? description,
-  }) => Schema(
-    type: 'boolean',
-    required: required,
-    example: example,
-    description: description,
-  );
+  }) =>
+      Schema(
+        type: 'boolean',
+        required: required,
+        example: example,
+        description: description,
+      );
 
   static Schema object(
     Map<String, Schema> properties, {
     bool required = false,
     String? description,
-  }) => Schema(
-    type: 'object',
-    required: required,
-    properties: properties,
-    description: description,
-  );
+  }) =>
+      Schema(
+        type: 'object',
+        required: required,
+        properties: properties,
+        description: description,
+      );
 
   static Schema array(
     Schema items, {
     bool required = false,
     String? description,
-  }) => Schema(
-    type: 'array',
-    required: required,
-    items: items,
-    description: description,
-  );
+  }) =>
+      Schema(
+        type: 'array',
+        required: required,
+        items: items,
+        description: description,
+      );
 
   Map<String, Object?> toOpenApi() {
     final out = <String, Object?>{'type': type};

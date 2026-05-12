@@ -29,8 +29,8 @@ Builder apiSpecTestBuilder(BuilderOptions options) => _ApiSpecTestBuilder();
 class _ApiSpecTestBuilder implements Builder {
   @override
   Map<String, List<String>> get buildExtensions => {
-    '.dart': ['.test.g.dart'],
-  };
+        '.dart': ['.test.g.dart'],
+      };
 
   @override
   Future<void> build(BuildStep buildStep) async {
@@ -39,9 +39,8 @@ class _ApiSpecTestBuilder implements Builder {
     const checker = TypeChecker.fromUrl(
       'package:flutter_api_client/src/gen/api_spec_entry.dart#ApiSpecEntry',
     );
-    final annotated = lib.topLevelElements
-        .where((e) => checker.hasAnnotationOf(e))
-        .toList();
+    final annotated =
+        lib.topLevelElements.where((e) => checker.hasAnnotationOf(e)).toList();
     if (annotated.isEmpty) return;
 
     final varName = annotated.first.name!;

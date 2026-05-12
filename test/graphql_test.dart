@@ -41,11 +41,11 @@ ApiSpec _gqlSpec() {
 }
 
 ApiClient _buildClient(ApiSpec spec) => ApiClient(
-  ApiClientConfig.test(
-    baseUrl: 'https://api.example.com',
-    adapter: SpecMockAdapter(spec),
-  ),
-);
+      ApiClientConfig.test(
+        baseUrl: 'https://api.example.com',
+        adapter: SpecMockAdapter(spec),
+      ),
+    );
 
 void main() {
   group('GraphQLClient + SpecMockAdapter', () {

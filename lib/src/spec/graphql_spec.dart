@@ -16,10 +16,10 @@ class GraphQLErrorExample {
   final Map<String, Object?>? extensions;
 
   Map<String, Object?> toJson() => {
-    'message': message,
-    if (path != null) 'path': path,
-    if (extensions != null) 'extensions': extensions,
-  };
+        'message': message,
+        if (path != null) 'path': path,
+        if (extensions != null) 'extensions': extensions,
+      };
 }
 
 /// A single GraphQL operation declaration in an [ApiSpec].
@@ -111,18 +111,19 @@ class GraphQLSection {
     Object? responseExample,
     Schema? responseSchema,
     List<GraphQLErrorExample> errors = const [],
-  }) => operation(
-    name,
-    kind: GraphQLOperationKind.query,
-    document: document,
-    description: description,
-    tag: tag,
-    auth: auth,
-    variables: variables,
-    responseExample: responseExample,
-    responseSchema: responseSchema,
-    errors: errors,
-  );
+  }) =>
+      operation(
+        name,
+        kind: GraphQLOperationKind.query,
+        document: document,
+        description: description,
+        tag: tag,
+        auth: auth,
+        variables: variables,
+        responseExample: responseExample,
+        responseSchema: responseSchema,
+        errors: errors,
+      );
 
   void mutation(
     String name, {
@@ -134,16 +135,17 @@ class GraphQLSection {
     Object? responseExample,
     Schema? responseSchema,
     List<GraphQLErrorExample> errors = const [],
-  }) => operation(
-    name,
-    kind: GraphQLOperationKind.mutation,
-    document: document,
-    description: description,
-    tag: tag,
-    auth: auth,
-    variables: variables,
-    responseExample: responseExample,
-    responseSchema: responseSchema,
-    errors: errors,
-  );
+  }) =>
+      operation(
+        name,
+        kind: GraphQLOperationKind.mutation,
+        document: document,
+        description: description,
+        tag: tag,
+        auth: auth,
+        variables: variables,
+        responseExample: responseExample,
+        responseSchema: responseSchema,
+        errors: errors,
+      );
 }

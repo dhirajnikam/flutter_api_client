@@ -12,7 +12,8 @@ void main() {
       final mock = MockAdapter();
       mock.onRequest('GET', RegExp(r'/data$'), (_) async {
         hits++;
-        return AdapterResponse(statusCode: 200, headers: const {}, bodyBytes: _b('{"n":$hits}'));
+        return AdapterResponse(
+            statusCode: 200, headers: const {}, bodyBytes: _b('{"n":$hits}'));
       });
 
       final client = ApiClient(
@@ -62,7 +63,8 @@ void main() {
       final mock = MockAdapter();
       mock.onRequest('GET', RegExp(r'/item$'), (_) async {
         hits++;
-        return AdapterResponse(statusCode: 200, headers: const {}, bodyBytes: _b('{"v":1}'));
+        return AdapterResponse(
+            statusCode: 200, headers: const {}, bodyBytes: _b('{"v":1}'));
       });
 
       final store = MemoryCacheStore();
@@ -75,7 +77,8 @@ void main() {
           interceptors: [
             CacheInterceptor(
               store: store,
-              defaultPolicy: CachePolicy.cacheFirst(ttl: const Duration(minutes: 5)),
+              defaultPolicy:
+                  CachePolicy.cacheFirst(ttl: const Duration(minutes: 5)),
             ),
           ],
         ),
@@ -110,7 +113,8 @@ void main() {
       final mock = MockAdapter();
       mock.onRequest('GET', RegExp(r'/swr$'), (_) async {
         hits++;
-        return AdapterResponse(statusCode: 200, headers: const {}, bodyBytes: _b('{"n":$hits}'));
+        return AdapterResponse(
+            statusCode: 200, headers: const {}, bodyBytes: _b('{"n":$hits}'));
       });
 
       final client = ApiClient(
@@ -145,7 +149,8 @@ void main() {
       final mock = MockAdapter();
       mock.onRequest('GET', RegExp(r'/swr2$'), (_) async {
         hits++;
-        return AdapterResponse(statusCode: 200, headers: const {}, bodyBytes: _b('{"n":$hits}'));
+        return AdapterResponse(
+            statusCode: 200, headers: const {}, bodyBytes: _b('{"n":$hits}'));
       });
 
       final client = ApiClient(
@@ -155,7 +160,8 @@ void main() {
           interceptors: [
             CacheInterceptor(
               store: MemoryCacheStore(),
-              defaultPolicy: CachePolicy.staleWhileRevalidate(const Duration(minutes: 5)),
+              defaultPolicy:
+                  CachePolicy.staleWhileRevalidate(const Duration(minutes: 5)),
             ),
           ],
         ),
@@ -168,7 +174,8 @@ void main() {
   });
 
   group('CacheInterceptor — ETag / 304', () {
-    test('sends If-None-Match on second request and serves cache on 304', () async {
+    test('sends If-None-Match on second request and serves cache on 304',
+        () async {
       var hits = 0;
       final mock = MockAdapter();
       mock.onRequest('GET', RegExp(r'/etag$'), (req) async {

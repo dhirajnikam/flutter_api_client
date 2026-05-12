@@ -20,10 +20,20 @@ void main() {
     test('drain returns all items and empties store', () async {
       final store = InMemoryOfflineQueueStore();
       await store.enqueue(
-        QueuedRequest(id: 'a', method: 'POST', endpoint: '/a', headers: const {}, createdAt: DateTime(2024)),
+        QueuedRequest(
+            id: 'a',
+            method: 'POST',
+            endpoint: '/a',
+            headers: const {},
+            createdAt: DateTime(2024)),
       );
       await store.enqueue(
-        QueuedRequest(id: 'b', method: 'PUT', endpoint: '/b', headers: const {}, createdAt: DateTime(2024)),
+        QueuedRequest(
+            id: 'b',
+            method: 'PUT',
+            endpoint: '/b',
+            headers: const {},
+            createdAt: DateTime(2024)),
       );
       final drained = await store.drain();
       expect(drained, hasLength(2));
@@ -33,7 +43,12 @@ void main() {
     test('remove deletes item by id', () async {
       final store = InMemoryOfflineQueueStore();
       await store.enqueue(
-        QueuedRequest(id: 'x', method: 'DELETE', endpoint: '/x', headers: const {}, createdAt: DateTime(2024)),
+        QueuedRequest(
+            id: 'x',
+            method: 'DELETE',
+            endpoint: '/x',
+            headers: const {},
+            createdAt: DateTime(2024)),
       );
       await store.remove('x');
       expect(await store.length, 0);

@@ -119,7 +119,8 @@ void main() {
       );
 
       await client.get<dynamic>('broken');
-      expect(lines.any((l) => l.contains('broken') || l.contains('down')), true);
+      expect(
+          lines.any((l) => l.contains('broken') || l.contains('down')), true);
     });
 
     test('truncates long response body at 2000 chars with ellipsis', () async {

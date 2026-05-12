@@ -13,7 +13,7 @@ import 'http_adapter.dart';
 /// other in-flight requests.
 class DefaultHttpAdapter implements HttpAdapter {
   DefaultHttpAdapter({http.Client Function()? clientFactory})
-    : _clientFactory = clientFactory ?? (() => http.Client());
+      : _clientFactory = clientFactory ?? (() => http.Client());
 
   final http.Client Function() _clientFactory;
 

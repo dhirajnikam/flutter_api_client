@@ -13,13 +13,13 @@ class GraphQLError {
   final Map<String, Object?>? extensions;
 
   factory GraphQLError.fromJson(Map<String, Object?> json) => GraphQLError(
-    message: json['message']?.toString() ?? 'Unknown GraphQL error',
-    path: json['path'] is List ? (json['path'] as List).cast<Object>() : null,
-    locations: (json['locations'] as List?)
-        ?.cast<Map<String, Object?>>()
-        .toList(),
-    extensions: (json['extensions'] as Map?)?.cast<String, Object?>(),
-  );
+        message: json['message']?.toString() ?? 'Unknown GraphQL error',
+        path:
+            json['path'] is List ? (json['path'] as List).cast<Object>() : null,
+        locations:
+            (json['locations'] as List?)?.cast<Map<String, Object?>>().toList(),
+        extensions: (json['extensions'] as Map?)?.cast<String, Object?>(),
+      );
 
   @override
   String toString() =>

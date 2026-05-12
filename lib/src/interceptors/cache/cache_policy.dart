@@ -14,7 +14,8 @@ class CachePolicy {
 
   factory CachePolicy.networkFirst({
     Duration ttl = const Duration(minutes: 5),
-  }) => CachePolicy(mode: CacheMode.networkFirst, ttl: ttl);
+  }) =>
+      CachePolicy(mode: CacheMode.networkFirst, ttl: ttl);
   factory CachePolicy.cacheFirst({Duration ttl = const Duration(minutes: 5)}) =>
       CachePolicy(mode: CacheMode.cacheFirst, ttl: ttl);
   factory CachePolicy.staleWhileRevalidate(Duration ttl) =>

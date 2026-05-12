@@ -186,11 +186,9 @@ class _DummyJsonTabState extends State<_DummyJsonTab> {
       },
     );
     if (res.isSuccess) {
-      final token =
-          (res.data?['accessToken'] ?? res.data?['token'] ?? '(none)')
-              .toString();
-      final short =
-          token.length > 40 ? '${token.substring(0, 40)}…' : token;
+      final token = (res.data?['accessToken'] ?? res.data?['token'] ?? '(none)')
+          .toString();
+      final short = token.length > 40 ? '${token.substring(0, 40)}…' : token;
       return 'Login OK [${res.statusCode}]\ntoken: $short';
     }
     return 'Login failed [${res.statusCode}]: ${res.errorMessage}';
@@ -202,7 +200,8 @@ class _DummyJsonTabState extends State<_DummyJsonTab> {
       options: const RequestOptions(queryParameters: {'limit': '5'}),
     );
     if (res.isSuccess) {
-      final items = (res.data?['products'] as List?)
+      final items =
+          (res.data?['products'] as List?)
               ?.map((p) => '  • ${p['title']}  \$${p['price']}')
               .join('\n') ??
           '(none)';
@@ -224,9 +223,7 @@ class _DummyJsonTabState extends State<_DummyJsonTab> {
   });
 
   Future<void> _fetchUserResult() => _run(() async {
-    final result = await _dummyClient.get<Map<String, dynamic>>(
-      'users/1',
-    );
+    final result = await _dummyClient.get<Map<String, dynamic>>('users/1');
     return result.when(
       success: (data) =>
           'ApiResult.Success [${(result as Success).statusCode}]:\n'
@@ -286,20 +283,21 @@ class _JsonPlaceholderTabState extends State<_JsonPlaceholderTab> {
       options: const RequestOptions(queryParameters: {'_limit': '5'}),
     );
     if (res.isSuccess) {
-      final cacheHit =
-          res.headers['x-fac-cache-hit'] == 'hit' ? ' (CACHE HIT)' : '';
-      final titles =
-          (res.data ?? [])
-              .map((p) => '  • [${p['id']}] ${p['title']}')
-              .join('\n');
+      final cacheHit = res.headers['x-fac-cache-hit'] == 'hit'
+          ? ' (CACHE HIT)'
+          : '';
+      final titles = (res.data ?? [])
+          .map((p) => '  • [${p['id']}] ${p['title']}')
+          .join('\n');
       return 'Posts [${res.statusCode}]$cacheHit:\n$titles';
     }
     return 'Error [${res.statusCode}]';
   });
 
   Future<void> _getUser() => _run(() async {
-    final res =
-        await _jsonPlaceholderClient.get<Map<String, dynamic>>('users/1');
+    final res = await _jsonPlaceholderClient.get<Map<String, dynamic>>(
+      'users/1',
+    );
     if (res.isSuccess) {
       final d = res.data!;
       return 'User 1 [${res.statusCode}]:\n'
@@ -344,8 +342,9 @@ class _JsonPlaceholderTabState extends State<_JsonPlaceholderTab> {
   });
 
   Future<void> _deletePost() => _run(() async {
-    final res =
-        await _jsonPlaceholderClient.delete<Map<String, dynamic>>('posts/1');
+    final res = await _jsonPlaceholderClient.delete<Map<String, dynamic>>(
+      'posts/1',
+    );
     return 'DELETE /posts/1 → ${res.statusCode} '
         '${res.isSuccess ? '(success)' : '(error)'}';
   });
@@ -413,30 +412,30 @@ class _DogTabState extends State<_DogTab> {
   }
 
   Future<void> _randomDog() => _run(() async {
-    final res =
-        await _dogClient.get<Map<String, dynamic>>('api/breeds/image/random');
+    final res = await _dogClient.get<Map<String, dynamic>>(
+      'api/breeds/image/random',
+    );
     if (res.isSuccess) {
       final url = res.data?['message'] as String?;
       if (url != null) setState(() => _imageUrl = url);
-      final hit =
-          res.headers['x-fac-cache-hit'] == 'hit'
-              ? ' (CACHE HIT)'
-              : ' (network)';
+      final hit = res.headers['x-fac-cache-hit'] == 'hit'
+          ? ' (CACHE HIT)'
+          : ' (network)';
       return 'Random dog$hit:\n$url';
     }
     return 'Error [${res.statusCode}]';
   });
 
   Future<void> _listBreeds() => _run(() async {
-    final res =
-        await _dogClient.get<Map<String, dynamic>>('api/breeds/list/all');
+    final res = await _dogClient.get<Map<String, dynamic>>(
+      'api/breeds/list/all',
+    );
     if (res.isSuccess) {
       final breeds =
           (res.data?['message'] as Map?)?.keys.take(10).join(', ') ?? '(none)';
-      final hit =
-          res.headers['x-fac-cache-hit'] == 'hit'
-              ? ' (CACHE HIT)'
-              : ' (network)';
+      final hit = res.headers['x-fac-cache-hit'] == 'hit'
+          ? ' (CACHE HIT)'
+          : ' (network)';
       return 'First 10 breeds$hit:\n$breeds';
     }
     return 'Error [${res.statusCode}]';
@@ -457,10 +456,9 @@ class _DogTabState extends State<_DogTab> {
     final res = await future;
     setState(() {
       _loading = false;
-      _out =
-          res.isSuccess
-              ? 'Completed before cancel [${res.statusCode}]:\n${res.data?['message']}'
-              : 'Cancelled/error [${res.statusCode}]: ${res.errorMessage}';
+      _out = res.isSuccess
+          ? 'Completed before cancel [${res.statusCode}]:\n${res.data?['message']}'
+          : 'Cancelled/error [${res.statusCode}]: ${res.errorMessage}';
     });
   }
 
@@ -472,22 +470,21 @@ class _DogTabState extends State<_DogTab> {
           'networkFirst cache · DedupInterceptor · CancelToken demo · Image display.',
       loading: _loading,
       output: _out,
-      extra:
-          _imageUrl != null
-              ? Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.network(
-                    _imageUrl!,
-                    height: 200,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) =>
-                        const Text('(image load failed)'),
-                  ),
+      extra: _imageUrl != null
+          ? Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(
+                  _imageUrl!,
+                  height: 200,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) =>
+                      const Text('(image load failed)'),
                 ),
-              )
-              : null,
+              ),
+            )
+          : null,
       buttons: [
         _btn('GET random dog image', _randomDog),
         _btn('GET /breeds/list/all  (tap twice for cache hit)', _listBreeds),
@@ -523,32 +520,36 @@ class _TriviaTabState extends State<_TriviaTab> {
     });
   }
 
-  Future<void> _fetchQuestions({
-    String type = 'multiple',
-    int amount = 3,
-  }) => _run(() async {
-    final res = await _triviaClient.get<Map<String, dynamic>>(
-      'api.php',
-      options: RequestOptions(
-        queryParameters: {
-          'amount': '$amount',
-          'type': type,
-          'encode': 'url3986',
-        },
-      ),
-    );
-    if (res.isSuccess) {
-      final questions = (res.data?['results'] as List?) ?? [];
-      if (questions.isEmpty) return 'No questions returned.';
-      final lines = questions.asMap().entries.map((e) {
-        final q = e.value as Map;
-        final text = Uri.decodeComponent(q['question'] as String? ?? '?');
-        return '${e.key + 1}. $text';
-      }).join('\n\n');
-      return 'Trivia (${type.toUpperCase()}):\n\n$lines';
-    }
-    return 'Error [${res.statusCode}]: ${res.errorMessage}';
-  });
+  Future<void> _fetchQuestions({String type = 'multiple', int amount = 3}) =>
+      _run(() async {
+        final res = await _triviaClient.get<Map<String, dynamic>>(
+          'api.php',
+          options: RequestOptions(
+            queryParameters: {
+              'amount': '$amount',
+              'type': type,
+              'encode': 'url3986',
+            },
+          ),
+        );
+        if (res.isSuccess) {
+          final questions = (res.data?['results'] as List?) ?? [];
+          if (questions.isEmpty) return 'No questions returned.';
+          final lines = questions
+              .asMap()
+              .entries
+              .map((e) {
+                final q = e.value as Map;
+                final text = Uri.decodeComponent(
+                  q['question'] as String? ?? '?',
+                );
+                return '${e.key + 1}. $text';
+              })
+              .join('\n\n');
+          return 'Trivia (${type.toUpperCase()}):\n\n$lines';
+        }
+        return 'Error [${res.statusCode}]: ${res.errorMessage}';
+      });
 
   Future<void> _resultPattern() => _run(() async {
     final result = await _triviaClient.get<Map<String, dynamic>>(

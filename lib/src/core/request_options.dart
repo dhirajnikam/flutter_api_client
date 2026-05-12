@@ -82,19 +82,20 @@ class RequestOptions {
     Object? retryPolicy,
     Object? cachePolicy,
     Object? tag,
-  }) => RequestOptions(
-    headers: headers ?? this.headers,
-    queryParameters: queryParameters ?? this.queryParameters,
-    timeout: timeout ?? this.timeout,
-    baseUrlOverride: baseUrlOverride ?? this.baseUrlOverride,
-    includeToken: includeToken ?? this.includeToken,
-    extraHeaders: extraHeaders ?? this.extraHeaders,
-    responseType: responseType ?? this.responseType,
-    cancelToken: cancelToken ?? this.cancelToken,
-    onSendProgress: onSendProgress ?? this.onSendProgress,
-    onReceiveProgress: onReceiveProgress ?? this.onReceiveProgress,
-    retryPolicy: retryPolicy ?? this.retryPolicy,
-    cachePolicy: cachePolicy ?? this.cachePolicy,
-    tag: tag ?? this.tag,
-  );
+  }) =>
+      RequestOptions(
+        headers: headers ?? this.headers,
+        queryParameters: queryParameters ?? this.queryParameters,
+        timeout: timeout ?? this.timeout,
+        baseUrlOverride: baseUrlOverride ?? this.baseUrlOverride,
+        includeToken: includeToken ?? this.includeToken,
+        extraHeaders: extraHeaders ?? this.extraHeaders,
+        responseType: responseType ?? this.responseType,
+        cancelToken: cancelToken ?? this.cancelToken,
+        onSendProgress: onSendProgress ?? this.onSendProgress,
+        onReceiveProgress: onReceiveProgress ?? this.onReceiveProgress,
+        retryPolicy: retryPolicy ?? this.retryPolicy,
+        cachePolicy: cachePolicy ?? this.cachePolicy,
+        tag: tag ?? this.tag,
+      );
 }

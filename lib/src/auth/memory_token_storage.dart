@@ -3,8 +3,8 @@ import 'token_storage.dart';
 /// In-memory token storage for tests or simple use cases.
 class MemoryTokenStorage implements TokenStorage {
   MemoryTokenStorage({String? accessToken, String? refreshToken})
-    : _accessToken = accessToken,
-      _refreshToken = refreshToken;
+      : _accessToken = accessToken,
+        _refreshToken = refreshToken;
 
   String? _accessToken;
   String? _refreshToken;

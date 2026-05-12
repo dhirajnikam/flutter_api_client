@@ -112,10 +112,10 @@ class CacheInterceptor extends Interceptor {
   }
 
   AdapterResponse _toResponse(CacheEntry e, bool hit) => AdapterResponse(
-    statusCode: e.statusCode,
-    headers: {...e.headers, _hitHeader: hit ? 'hit' : 'miss'},
-    bodyBytes: e.bodyBytes,
-  );
+        statusCode: e.statusCode,
+        headers: {...e.headers, _hitHeader: hit ? 'hit' : 'miss'},
+        bodyBytes: e.bodyBytes,
+      );
 
   String _key(InterceptedRequest req) {
     final url = buildUri(

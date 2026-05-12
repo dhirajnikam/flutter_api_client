@@ -111,10 +111,10 @@ class SpecMockAdapter implements HttpAdapter {
   }
 
   AdapterResponse _toResponse(ResponseExample r) => AdapterResponse(
-    statusCode: r.statusCode,
-    headers: Map<String, String>.from(r.headers),
-    bodyBytes: _encode(r.body),
-  );
+        statusCode: r.statusCode,
+        headers: Map<String, String>.from(r.headers),
+        bodyBytes: _encode(r.body),
+      );
 
   Uint8List _encode(Object? body) {
     if (body == null) return Uint8List(0);
@@ -262,10 +262,10 @@ class SpecMockAdapter implements HttpAdapter {
   }
 
   AdapterResponse _gqlError(int statusCode, String message) => _gqlResponse(
-    statusCode,
-    data: null,
-    errors: [GraphQLErrorExample(message: message)],
-  );
+        statusCode,
+        data: null,
+        errors: [GraphQLErrorExample(message: message)],
+      );
 
   @override
   void close() {}

@@ -21,13 +21,13 @@ class InterceptedRequest {
   bool isMultipart;
 
   InterceptedRequest copy() => InterceptedRequest(
-    method: method,
-    endpoint: endpoint,
-    headers: Map.of(headers),
-    options: options,
-    data: data,
-    isMultipart: isMultipart,
-  );
+        method: method,
+        endpoint: endpoint,
+        headers: Map.of(headers),
+        options: options,
+        data: data,
+        isMultipart: isMultipart,
+      );
 }
 
 /// Result returned from each step of the chain.
@@ -60,10 +60,12 @@ abstract class Interceptor {
   Future<InterceptorResult> onResponse(
     InterceptedRequest req,
     AdapterResponse res,
-  ) async => ResolveResult(res);
+  ) async =>
+      ResolveResult(res);
 
   Future<InterceptorResult> onError(
     InterceptedRequest req,
     ApiException error,
-  ) async => RejectResult(error);
+  ) async =>
+      RejectResult(error);
 }

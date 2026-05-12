@@ -1,16 +1,71 @@
-/// Flutter API Client — a reusable, extensible HTTP client for Flutter/Dart.
+/// Flutter API Client — a production-ready, type-safe HTTP client for Flutter/Dart.
 ///
-/// 2.0.0 highlights:
-///   * Unified `ApiResult<T>` — single sealed type for all HTTP methods
-///   * Real multi-request `CancelToken`
-///   * `RetryPolicy` (exponential backoff + jitter + `Retry-After`)
-///   * Concurrent-safe auth refresh queue
-///   * Cache interceptor (memory store + pluggable disk) with cache modes
-///   * Request deduplication
-///   * cURL + pretty loggers (with redaction)
-///   * Pluggable `HttpAdapter` and a built-in `MockAdapter`
-///   * Spec-driven endpoints: one [ApiSpec] generates a mock adapter,
-///     OpenAPI, an API reference, and a backend implementation guide.
+/// ## Key Features
+///
+/// ### Core HTTP Client
+/// - Type-safe generic methods: `get<T>`, `post<T>`, `put<T>`, `patch<T>`, `delete<T>`
+/// - Sealed `ApiResult<T>` with exhaustive `Success`/`Failure` pattern matching
+/// - Custom decoders to transform JSON directly to your model types
+/// - Multiple response modes: JSON, bytes, plain text, streaming
+/// - Multipart file uploads with progress tracking
+/// - Automatic query parameter encoding
+///
+/// ### Authentication & Security
+/// - Pluggable [TokenStorage] interface for secure token persistence
+/// - Concurrent-safe 401 token refresh with request queue
+/// - Automatic Bearer token injection
+/// - Header redaction in logs for sensitive data protection
+///
+/// ### Resilience & Performance
+/// - [RetryInterceptor]: Exponential backoff with jitter and `Retry-After` support
+/// - [CacheInterceptor]: Four cache strategies with ETag validation
+/// - [DedupInterceptor]: Collapse identical in-flight requests
+/// - [OfflineQueueInterceptor]: Persist failed writes for later replay
+/// - [CancelToken]: Abort multiple related requests at once
+///
+/// ### Spec-Driven Development
+/// - [ApiSpec]: Define your API contract once
+/// - [SpecMockAdapter]: Schema-validating mock for tests
+/// - [OpenApiGenerator]: Generate OpenAPI 3.1 docs
+/// - [MarkdownDocGenerator]: Create developer-friendly API references
+/// - [BackendGuideGenerator]: Produce implementation guides for your backend team
+/// - [TestGenerator]: Generate complete runnable test suites
+///
+/// ### GraphQL Support
+/// - [GraphQLClient]: Query, mutation, and APQ support
+/// - Typed error handling with [GraphQLError]
+/// - Variable validation and SDL generation from specs
+///
+/// ### Testing
+/// - [MockAdapter]: Route-based mocking with request capture
+/// - Built-in test suite with 107+ passing tests
+/// - No external mock dependencies
+///
+/// ## Quick Start
+///
+/// ```dart
+/// final client = ApiClient(
+///   ApiClientConfig(
+///     baseUrl: 'https://api.example.com',
+///     interceptors: [
+///       RetryInterceptor(),
+///       CacheInterceptor(store: MemoryCacheStore()),
+///       PrettyLogger(),
+///     ],
+///   ),
+/// );
+///
+/// final result = await client.get<User>('users/me', decoder: User.fromJson);
+/// result.when(
+///   success: (user) => print('Hello ${user.name}'),
+///   failure: (error) => print('Error: ${error.message}'),
+/// );
+/// ```
+///
+/// ## Version 1.0.1
+/// - Fixed generated test file imports
+/// - Enhanced documentation
+/// - Improved type safety across all modules
 library;
 
 // Core

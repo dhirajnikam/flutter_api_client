@@ -31,15 +31,15 @@ sealed class ApiResult<T> {
 
   /// The decoded response body. Non-null on [Success], null on [Failure].
   T? get data => switch (this) {
-    Success<T>(:final data) => data,
-    Failure<T>() => null,
-  };
+        Success<T>(:final data) => data,
+        Failure<T>() => null,
+      };
 
   /// The typed error. Non-null on [Failure], null on [Success].
   ApiException? get error => switch (this) {
-    Success<T>() => null,
-    Failure<T>(:final error) => error,
-  };
+        Success<T>() => null,
+        Failure<T>(:final error) => error,
+      };
 
   /// Human-readable error string. Shorthand for [error]?.message.
   String? get errorMessage => error?.message;
@@ -52,37 +52,39 @@ sealed class ApiResult<T> {
 
   /// HTTP status code. Present on both branches where available.
   int? get statusCode => switch (this) {
-    Success<T>(:final statusCode) => statusCode,
-    Failure<T>() => null,
-  };
+        Success<T>(:final statusCode) => statusCode,
+        Failure<T>() => null,
+      };
 
   /// Response headers. Empty map on [Failure].
   Map<String, String> get headers => switch (this) {
-    Success<T>(:final headers) => headers,
-    Failure<T>() => const {},
-  };
+        Success<T>(:final headers) => headers,
+        Failure<T>() => const {},
+      };
 
   /// Pattern match success / failure exhaustively.
   R when<R>({
     required R Function(T data) success,
     required R Function(ApiException error) failure,
-  }) => switch (this) {
-    Success<T>(:final data) => success(data),
-    Failure<T>(:final error) => failure(error),
-  };
+  }) =>
+      switch (this) {
+        Success<T>(:final data) => success(data),
+        Failure<T>(:final error) => failure(error),
+      };
 
   /// Map the success value to another type, passing failure through unchanged.
   ApiResult<R> map<R>(R Function(T data) transform) => switch (this) {
-    Success<T>(:final data, :final statusCode, :final headers) => Success<R>(
-      transform(data),
-      statusCode: statusCode,
-      headers: headers,
-    ),
-    Failure<T>(:final error, :final statusCode) => Failure<R>(
-      error,
-      statusCode: statusCode,
-    ),
-  };
+        Success<T>(:final data, :final statusCode, :final headers) =>
+          Success<R>(
+            transform(data),
+            statusCode: statusCode,
+            headers: headers,
+          ),
+        Failure<T>(:final error, :final statusCode) => Failure<R>(
+            error,
+            statusCode: statusCode,
+          ),
+      };
 }
 
 /// Successful API result carrying the decoded body.
@@ -101,7 +103,8 @@ final class Success<T> extends ApiResult<T> {
 
 /// Failed API result carrying a typed [ApiException].
 final class Failure<T> extends ApiResult<T> {
-  const Failure(this.error, {int? statusCode}) : _explicitStatusCode = statusCode;
+  const Failure(this.error, {int? statusCode})
+      : _explicitStatusCode = statusCode;
 
   @override
   final ApiException error;

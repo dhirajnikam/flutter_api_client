@@ -164,8 +164,7 @@ class OpenApiGenerator {
 
   String _yamlString(String s) {
     if (s.isEmpty) return '""';
-    final needsQuoting =
-        RegExp(r'[:#\-?\[\]\{\}&*!|>%@`\n]').hasMatch(s) ||
+    final needsQuoting = RegExp(r'[:#\-?\[\]\{\}&*!|>%@`\n]').hasMatch(s) ||
         s.startsWith(' ') ||
         s.endsWith(' ') ||
         const ['true', 'false', 'null', 'yes', 'no'].contains(s.toLowerCase());

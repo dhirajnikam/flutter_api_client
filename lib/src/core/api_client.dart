@@ -49,15 +49,16 @@ class ApiClientConfig {
     Duration connectTimeout = const Duration(seconds: 30),
     String authScheme = 'Bearer',
     List<Interceptor> interceptors = const [],
-  }) => ApiClientConfig(
-    baseUrl: baseUrl,
-    getAccessToken: getAccessToken,
-    refreshToken: refreshToken,
-    extraHeaders: extraHeaders,
-    connectTimeout: connectTimeout,
-    authScheme: authScheme,
-    interceptors: interceptors,
-  );
+  }) =>
+      ApiClientConfig(
+        baseUrl: baseUrl,
+        getAccessToken: getAccessToken,
+        refreshToken: refreshToken,
+        extraHeaders: extraHeaders,
+        connectTimeout: connectTimeout,
+        authScheme: authScheme,
+        interceptors: interceptors,
+      );
 
   factory ApiClientConfig.withStorage({
     required String baseUrl,
@@ -67,25 +68,27 @@ class ApiClientConfig {
     Duration connectTimeout = const Duration(seconds: 30),
     String authScheme = 'Bearer',
     List<Interceptor> interceptors = const [],
-  }) => ApiClientConfig(
-    baseUrl: baseUrl,
-    tokenStorage: tokenStorage,
-    refreshToken: refreshToken,
-    extraHeaders: extraHeaders,
-    connectTimeout: connectTimeout,
-    authScheme: authScheme,
-    interceptors: interceptors,
-  );
+  }) =>
+      ApiClientConfig(
+        baseUrl: baseUrl,
+        tokenStorage: tokenStorage,
+        refreshToken: refreshToken,
+        extraHeaders: extraHeaders,
+        connectTimeout: connectTimeout,
+        authScheme: authScheme,
+        interceptors: interceptors,
+      );
 
   factory ApiClientConfig.test({
     required String baseUrl,
     required HttpAdapter adapter,
     List<Interceptor> interceptors = const [],
-  }) => ApiClientConfig(
-    baseUrl: baseUrl,
-    adapter: adapter,
-    interceptors: interceptors,
-  );
+  }) =>
+      ApiClientConfig(
+        baseUrl: baseUrl,
+        adapter: adapter,
+        interceptors: interceptors,
+      );
 }
 
 /// Public API of an HTTP client.
@@ -136,13 +139,13 @@ abstract class ApiClientInterface {
 /// dedup, refresh-queue auth, and spec-driven mocks.
 class ApiClient implements ApiClientInterface {
   ApiClient(ApiClientConfig config)
-    : _config = config,
-      _adapter = config.adapter ?? DefaultHttpAdapter(),
-      _responseHandler = config.responseHandler ?? const ResponseHandler(),
-      _chain = InterceptorChain([
-        ..._buildAutoAuthInterceptor(config),
-        ...config.interceptors,
-      ]);
+      : _config = config,
+        _adapter = config.adapter ?? DefaultHttpAdapter(),
+        _responseHandler = config.responseHandler ?? const ResponseHandler(),
+        _chain = InterceptorChain([
+          ..._buildAutoAuthInterceptor(config),
+          ...config.interceptors,
+        ]);
 
   final ApiClientConfig _config;
   final HttpAdapter _adapter;
@@ -224,8 +227,9 @@ class ApiClient implements ApiClientInterface {
     bool includeToken = true,
     RequestOptions? options,
     T Function(Object json)? decoder,
-  }) => _request<T>('GET', endpoint,
-        includeToken: includeToken, options: options, decoder: decoder);
+  }) =>
+      _request<T>('GET', endpoint,
+          includeToken: includeToken, options: options, decoder: decoder);
 
   @override
   Future<ApiResult<T>> post<T>(
@@ -235,9 +239,13 @@ class ApiClient implements ApiClientInterface {
     bool isMultipart = false,
     RequestOptions? options,
     T Function(Object json)? decoder,
-  }) => _request<T>('POST', endpoint,
-        data: data, includeToken: includeToken, isMultipart: isMultipart,
-        options: options, decoder: decoder);
+  }) =>
+      _request<T>('POST', endpoint,
+          data: data,
+          includeToken: includeToken,
+          isMultipart: isMultipart,
+          options: options,
+          decoder: decoder);
 
   @override
   Future<ApiResult<T>> put<T>(
@@ -247,9 +255,13 @@ class ApiClient implements ApiClientInterface {
     bool isMultipart = false,
     RequestOptions? options,
     T Function(Object json)? decoder,
-  }) => _request<T>('PUT', endpoint,
-        data: data, includeToken: includeToken, isMultipart: isMultipart,
-        options: options, decoder: decoder);
+  }) =>
+      _request<T>('PUT', endpoint,
+          data: data,
+          includeToken: includeToken,
+          isMultipart: isMultipart,
+          options: options,
+          decoder: decoder);
 
   @override
   Future<ApiResult<T>> patch<T>(
@@ -259,9 +271,13 @@ class ApiClient implements ApiClientInterface {
     bool isMultipart = false,
     RequestOptions? options,
     T Function(Object json)? decoder,
-  }) => _request<T>('PATCH', endpoint,
-        data: data, includeToken: includeToken, isMultipart: isMultipart,
-        options: options, decoder: decoder);
+  }) =>
+      _request<T>('PATCH', endpoint,
+          data: data,
+          includeToken: includeToken,
+          isMultipart: isMultipart,
+          options: options,
+          decoder: decoder);
 
   @override
   Future<ApiResult<T>> delete<T>(
@@ -269,9 +285,9 @@ class ApiClient implements ApiClientInterface {
     bool includeToken = true,
     RequestOptions? options,
     T Function(Object json)? decoder,
-  }) => _request<T>('DELETE', endpoint,
-        includeToken: includeToken, options: options, decoder: decoder);
-
+  }) =>
+      _request<T>('DELETE', endpoint,
+          includeToken: includeToken, options: options, decoder: decoder);
 
   Future<AdapterResponse> _send({
     required String method,

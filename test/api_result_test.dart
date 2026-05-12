@@ -11,7 +11,8 @@ void main() {
 
     test('calls failure branch on Failure', () {
       const result = Failure<int>(NetworkError('down'));
-      final out = result.when(success: (_) => 'ok', failure: (e) => 'err:${e.message}');
+      final out =
+          result.when(success: (_) => 'ok', failure: (e) => 'err:${e.message}');
       expect(out, 'err:down');
     });
   });
@@ -75,7 +76,8 @@ void main() {
 
     test('returns Failure with HttpError on 404', () async {
       final mock = MockAdapter()
-        ..on('GET', RegExp(r'/gone$'), statusCode: 404, body: {'message': 'not found'});
+        ..on('GET', RegExp(r'/gone$'),
+            statusCode: 404, body: {'message': 'not found'});
       final client = ApiClient(
         ApiClientConfig.test(baseUrl: 'https://api.example.com', adapter: mock),
       );

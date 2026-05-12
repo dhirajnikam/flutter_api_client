@@ -29,12 +29,13 @@ class RetryPolicy {
     Duration baseDelay = const Duration(milliseconds: 200),
     Duration maxDelay = const Duration(seconds: 30),
     Set<int>? retryOnStatus,
-  }) => RetryPolicy(
-    maxAttempts: maxAttempts,
-    baseDelay: baseDelay,
-    maxDelay: maxDelay,
-    retryOnStatus: retryOnStatus ?? const {408, 429, 500, 502, 503, 504},
-  );
+  }) =>
+      RetryPolicy(
+        maxAttempts: maxAttempts,
+        baseDelay: baseDelay,
+        maxDelay: maxDelay,
+        retryOnStatus: retryOnStatus ?? const {408, 429, 500, 502, 503, 504},
+      );
 
   bool shouldRetryResponse(AdapterResponse res, int attempt) {
     if (attempt >= maxAttempts) return false;
@@ -58,8 +59,8 @@ class RetryPolicy {
     final raw = baseDelay * pow;
     final capped = raw > maxDelay ? maxDelay : raw;
     if (!useJitter) return capped;
-    final jitterMs = (Random().nextDouble() * capped.inMilliseconds * 0.3)
-        .toInt();
+    final jitterMs =
+        (Random().nextDouble() * capped.inMilliseconds * 0.3).toInt();
     return Duration(milliseconds: capped.inMilliseconds + jitterMs);
   }
 }

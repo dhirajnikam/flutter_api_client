@@ -25,13 +25,13 @@ class QueuedRequest {
   final DateTime createdAt;
 
   Map<String, Object?> toJson() => {
-    'id': id,
-    'method': method,
-    'endpoint': endpoint,
-    'headers': headers,
-    'body': body,
-    'createdAt': createdAt.toIso8601String(),
-  };
+        'id': id,
+        'method': method,
+        'endpoint': endpoint,
+        'headers': headers,
+        'body': body,
+        'createdAt': createdAt.toIso8601String(),
+      };
 }
 
 /// Default in-memory queue store (volatile). Replace with a persistent

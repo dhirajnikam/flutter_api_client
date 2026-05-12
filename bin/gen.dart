@@ -5,23 +5,26 @@ import 'package:flutter_api_client/src/gen/cli_helpers.dart';
 
 void main(List<String> args) async {
   final parser = ArgParser()
-    ..addOption('output', abbr: 'o', defaultsTo: 'docs/api',
+    ..addOption('output',
+        abbr: 'o',
+        defaultsTo: 'docs/api',
         help: 'Output directory for generated files')
     ..addOption('only',
         help: 'Comma-separated subset to generate: openapi, reference, backend')
-    ..addOption('framework', defaultsTo: 'none',
+    ..addOption('framework',
+        defaultsTo: 'none',
         allowed: ['none', 'express', 'fastapi', 'gin'],
         help: 'Backend framework for code snippets in backend-guide.md')
-    ..addFlag('no-json', negatable: false,
-        help: 'Skip openapi.json (YAML only)')
-    ..addFlag('no-yaml', negatable: false,
-        help: 'Skip openapi.yaml (JSON only)')
-    ..addFlag('tests', negatable: false,
+    ..addFlag('no-json',
+        negatable: false, help: 'Skip openapi.json (YAML only)')
+    ..addFlag('no-yaml',
+        negatable: false, help: 'Skip openapi.yaml (JSON only)')
+    ..addFlag('tests',
+        negatable: false,
         help: 'Shorthand for --only tests; writes test/api_spec_test.dart')
-    ..addFlag('dry-run', negatable: false,
-        help: 'Print output paths without writing files')
-    ..addFlag('help', abbr: 'h', negatable: false,
-        help: 'Show this help');
+    ..addFlag('dry-run',
+        negatable: false, help: 'Print output paths without writing files')
+    ..addFlag('help', abbr: 'h', negatable: false, help: 'Show this help');
 
   late ArgResults parsed;
   try {

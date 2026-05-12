@@ -49,7 +49,7 @@ a Markdown API reference, and a backend implementation guide.
 
 ```yaml
 dependencies:
-  flutter_api_client: ^2.0.0
+  flutter_api_client: ^1.0.1
 
 dev_dependencies:
   build_runner: ^2.4.0
@@ -95,24 +95,102 @@ dart test --concurrency=8
 
 ## Why this package
 
-| Feature | `dio` | `flutter_api_client` 1.0 |
-|---|---|---|
-| Typed `get<T>` / `post<T>` with decoder | manual | built-in |
-| Sealed `ApiResult<T>` (Success / Failure) | no | built-in |
-| Multi-request `CancelToken` | yes | yes |
-| Exponential backoff + jitter + `Retry-After` | `dio_smart_retry` | built-in |
-| Concurrent-safe 401 refresh queue | DIY | built-in |
-| Cache: `networkFirst`, `cacheFirst`, `staleWhileRevalidate`, `cacheOnly` | `dio_cache_interceptor` | built-in |
-| ETag / `If-None-Match` revalidation | plugin | built-in |
-| Request dedup / in-flight coalescing | DIY | built-in |
-| Offline write queue (pluggable storage) | DIY | built-in |
-| cURL + pretty logger with redaction | `pretty_dio_logger` | built-in |
-| Pluggable transport (`HttpAdapter`) | yes | yes |
-| Built-in `MockAdapter` for tests | `http_mock_adapter` | built-in |
-| Spec → mock + OpenAPI + docs + backend guide | no | **yes** |
-| Upload / download progress callbacks | yes | yes |
-| Per-request response mode (JSON / bytes / text / stream) | yes | yes |
-| GraphQL query / mutation / APQ | no | built-in |
+`flutter_api_client` is a production-ready HTTP client that goes beyond basic REST calls. It provides enterprise-grade features out of the box, eliminating the need for multiple third-party packages.
+
+### Feature Comparison
+
+| Feature | `dio` | `http` | `flutter_api_client` 1.0 |
+|---|---|---|---|
+| Typed `get<T>` / `post<T>` with decoder | manual | no | ✅ built-in |
+| Sealed `ApiResult<T>` (Success / Failure) | no | no | ✅ built-in |
+| Multi-request `CancelToken` | yes | no | ✅ yes |
+| Exponential backoff + jitter + `Retry-After` | plugin | no | ✅ built-in |
+| Concurrent-safe 401 refresh queue | DIY | no | ✅ built-in |
+| Cache: `networkFirst`, `cacheFirst`, `staleWhileRevalidate`, `cacheOnly` | plugin | no | ✅ built-in |
+| ETag / `If-None-Match` revalidation | plugin | no | ✅ built-in |
+| Request dedup / in-flight coalescing | DIY | no | ✅ built-in |
+| Offline write queue (pluggable storage) | DIY | no | ✅ built-in |
+| cURL + pretty logger with redaction | plugin | no | ✅ built-in |
+| Pluggable transport (`HttpAdapter`) | yes | no | ✅ yes |
+| Built-in `MockAdapter` for tests | plugin | no | ✅ built-in |
+| **Spec → mock + OpenAPI + docs + backend guide** | no | no | ✅ **yes** |
+| Upload / download progress callbacks | yes | no | ✅ yes |
+| Per-request response mode (JSON / bytes / text / stream) | yes | no | ✅ yes |
+| GraphQL query / mutation / APQ | no | no | ✅ built-in |
+| Zero native dependencies | yes | yes | ✅ yes |
+| Production stability | mature | mature | ✅ stable |
+
+### Key Advantages
+
+1. **All-in-One Solution**: No need for `dio_smart_retry`, `dio_cache_interceptor`, `pretty_dio_logger`, `http_mock_adapter` — everything is integrated
+2. **Spec-Driven Development**: Write your API contract once, get tests, docs, and backend guides automatically
+3. **Type Safety**: Sealed `ApiResult<T>` ensures exhaustive error handling at compile time
+4. **Zero Configuration for Common Patterns**: Sensible defaults for caching, retries, and auth refresh
+5. **Testing First**: Built-in mocking without external dependencies
+6. **GraphQL Support**: First-class query/mutation support with automatic persisted queries (APQ)
+
+---
+
+## Features at a Glance
+
+### Core HTTP Client
+- **Type-safe requests**: Generic methods `get<T>`, `post<T>`, `put<T>`, `patch<T>`, `delete<T>`
+- **Sealed result type**: `ApiResult<T>` with exhaustive `Success` / `Failure` matching
+- **Response modes**: JSON parsing, raw bytes, plain text, streaming
+- **Custom decoders**: Transform responses directly to your model types
+- **Multipart uploads**: File upload with progress tracking
+- **Query parameters**: Automatic URL encoding with list and nested object support
+
+### Authentication & Security
+- **Token storage**: Pluggable `TokenStorage` interface with memory and cached implementations
+- **Auto token refresh**: Concurrent-safe 401 handling with refresh queue
+- **Header redaction**: Sensitive data protection in logs
+- **Bearer token**: Automatic `Authorization` header injection
+- **Per-request auth control**: Disable auth for public endpoints
+
+### Resilience & Performance
+- **Smart retries**: Exponential backoff with jitter and `Retry-After` header support
+- **HTTP caching**: Four cache modes (`networkFirst`, `cacheFirst`, `staleWhileRevalidate`, `cacheOnly`)
+- **ETag validation**: Automatic `If-None-Match` for bandwidth optimization
+- **Request deduplication**: Collapse identical in-flight requests
+- **Offline queue**: Persist failed writes for replay when online
+- **Cancel tokens**: Abort multiple related requests simultaneously
+
+### Developer Experience
+- **Logging interceptors**: cURL commands and pretty-printed request/response logs
+- **Custom interceptors**: Extensible request/response/error pipeline
+- **Type-safe errors**: Six typed exception classes for exhaustive error handling
+- **Progress callbacks**: Track upload and download progress
+- **Timeout control**: Per-request timeout overrides
+
+### Testing & Mocking
+- **MockAdapter**: Route-based mocking with request capture
+- **SpecMockAdapter**: Schema-validating mock from API spec
+- **Built-in test suite**: 107+ passing tests covering all features
+- **No external mock libs**: Everything needed for testing included
+
+### Spec-Driven Development (Unique Feature)
+- **API specification DSL**: Define contracts with `ApiSpec`
+- **OpenAPI generator**: Automatic OpenAPI 3.1 YAML/JSON output
+- **Documentation generator**: Markdown API reference for developers
+- **Backend guide generator**: Implementation guides for Express, FastAPI, Gin
+- **Test generator**: Complete runnable test suites from specs
+- **GraphQL support**: Query, mutation, subscription specs with SDL generation
+
+### GraphQL Client
+- **Query & mutation**: Full GraphQL-over-HTTP protocol support
+- **Error handling**: Typed `GraphQLError` with location and path
+- **Partial responses**: Handle mixed data and errors
+- **Auto persisted queries (APQ)**: Bandwidth optimization with query hashing
+- **Variable validation**: Schema-based variable checking in specs
+- **Framework snippets**: Apollo, Strawberry, gqlgen code generation
+
+### Extensibility
+- **Pluggable transport**: Swap HTTP implementation (`cupertino_http`, `cronet_http`)
+- **Custom adapters**: WebSocket, gRPC, or any custom transport
+- **Interceptor chain**: Ordered execution with request/response/error hooks
+- **Custom cache stores**: Implement persistent caching (SQLite, Hive, etc.)
+- **Response handlers**: Custom error message extraction
 
 ---
 
@@ -121,7 +199,7 @@ dart test --concurrency=8
 ```yaml
 # pubspec.yaml
 dependencies:
-  flutter_api_client: ^1.0.0
+  flutter_api_client: ^1.0.1
 ```
 
 ```bash

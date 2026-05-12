@@ -26,7 +26,7 @@ class MockRoute {
 /// HTTP adapter that returns canned responses, perfect for tests.
 class MockAdapter implements HttpAdapter {
   MockAdapter({List<MockRoute>? routes, this.latency})
-    : routes = routes ?? <MockRoute>[];
+      : routes = routes ?? <MockRoute>[];
 
   final List<MockRoute> routes;
   final Duration? latency;

@@ -386,12 +386,10 @@ class BackendGuideGenerator {
 
   String _buildSdl(GraphQLSection section) {
     final buf = StringBuffer();
-    final queries = section.operations
-        .where((o) => o.isQuery)
-        .toList(growable: false);
-    final mutations = section.operations
-        .where((o) => o.isMutation)
-        .toList(growable: false);
+    final queries =
+        section.operations.where((o) => o.isQuery).toList(growable: false);
+    final mutations =
+        section.operations.where((o) => o.isMutation).toList(growable: false);
     final subscriptions = section.operations
         .where((o) => o.isSubscription)
         .toList(growable: false);
@@ -450,11 +448,7 @@ class BackendGuideGenerator {
     switch (framework) {
       case BackendFramework.express:
         return 'const resolvers = {\n'
-            '  ${op.isMutation
-                ? 'Mutation'
-                : op.isSubscription
-                ? 'Subscription'
-                : 'Query'}: {\n'
+            '  ${op.isMutation ? 'Mutation' : op.isSubscription ? 'Subscription' : 'Query'}: {\n'
             '    ${_resolverName(op)}: async (_, { $args }, ctx) => {\n'
             '      ${op.auth ? 'await requireAuth(ctx);\n      ' : ''}// TODO: implement\n'
             '      return {};\n'
