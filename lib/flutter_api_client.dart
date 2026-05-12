@@ -1,7 +1,7 @@
 /// Flutter API Client — a reusable, extensible HTTP client for Flutter/Dart.
 ///
-/// 1.0.0 highlights:
-///   * Typed `ApiResult<T>` / generic `CustomApiResponse<T>` with decoders
+/// 2.0.0 highlights:
+///   * Unified `ApiResult<T>` — single sealed type for all HTTP methods
 ///   * Real multi-request `CancelToken`
 ///   * `RetryPolicy` (exponential backoff + jitter + `Retry-After`)
 ///   * Concurrent-safe auth refresh queue

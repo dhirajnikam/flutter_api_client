@@ -224,8 +224,7 @@ class _DummyJsonTabState extends State<_DummyJsonTab> {
   });
 
   Future<void> _fetchUserResult() => _run(() async {
-    final result = await _dummyClient.request<Map<String, dynamic>>(
-      'GET',
+    final result = await _dummyClient.get<Map<String, dynamic>>(
       'users/1',
     );
     return result.when(
@@ -552,8 +551,7 @@ class _TriviaTabState extends State<_TriviaTab> {
   });
 
   Future<void> _resultPattern() => _run(() async {
-    final result = await _triviaClient.request<Map<String, dynamic>>(
-      'GET',
+    final result = await _triviaClient.get<Map<String, dynamic>>(
       'api.php',
       options: const RequestOptions(
         queryParameters: {
