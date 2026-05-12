@@ -101,6 +101,32 @@ void main() {
     });
   });
 
+  group('ApiResult convenience getters', () {
+    test('data returns value on Success', () {
+      const r = Success<int>(42, statusCode: 200, headers: {'x-id': '1'});
+      expect(r.data, 42);
+      expect(r.error, isNull);
+      expect(r.errorMessage, isNull);
+      expect(r.statusCode, 200);
+      expect(r.headers, {'x-id': '1'});
+    });
+
+    test('data returns null on Failure', () {
+      const r = Failure<int>(HttpError('not found', statusCode: 404));
+      expect(r.data, isNull);
+      expect(r.error, isA<HttpError>());
+      expect(r.errorMessage, 'not found');
+      expect(r.statusCode, 404);
+      expect(r.headers, <String, String>{});
+    });
+
+    test('Failure with no statusCode returns null statusCode', () {
+      const r = Failure<int>(NetworkError('offline'));
+      expect(r.statusCode, isNull);
+      expect(r.errorMessage, 'offline');
+    });
+  });
+
   group('ApiException subtypes', () {
     test('NetworkError toString contains message', () {
       const e = NetworkError('socket closed');
