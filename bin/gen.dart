@@ -169,14 +169,14 @@ import '${specRelative.replaceAll(r'\\', '/')}';
 void main() {
   final spec = \$generatedSpec;
   final outDir = Directory('$outputDir');
-  if (!${dryRun}) outDir.createSync(recursive: true);
+  if (!$dryRun) outDir.createSync(recursive: true);
 
   var count = 0;
 
   void write(String name, String content) {
     final path = '\${outDir.path}/\$name';
     final kb = (content.length / 1024).toStringAsFixed(1);
-    if (${dryRun}) {
+    if ($dryRun) {
       stdout.writeln('  (dry-run) \$path  (\$kb KB)');
     } else {
       File(path).writeAsStringSync(content);
@@ -185,15 +185,15 @@ void main() {
     count++;
   }
 
-  if (${genOpenapi}) {
+  if ($genOpenapi) {
     final gen = OpenApiGenerator(spec);
-    if (!${noJson}) write('openapi.json', gen.toJsonString());
-    if (!${noYaml}) write('openapi.yaml', gen.toYaml());
+    if (!$noJson) write('openapi.json', gen.toJsonString());
+    if (!$noYaml) write('openapi.yaml', gen.toYaml());
   }
-  if (${genReference}) {
+  if ($genReference) {
     write('api-reference.md', MarkdownDocGenerator(spec).generate());
   }
-  if (${genBackend}) {
+  if ($genBackend) {
     final fw = BackendFramework.values.firstWhere(
       (f) => f.name == '$framework',
       orElse: () => BackendFramework.none,
@@ -201,12 +201,12 @@ void main() {
     write('backend-guide.md',
         BackendGuideGenerator(spec, framework: fw).generate());
   }
-  if (${genTests}) {
+  if ($genTests) {
     final testDir = Directory('test');
     final testContent = TestGenerator(spec).generate();
     final testPath = 'test/api_spec_test.dart';
     final testKb = (testContent.length / 1024).toStringAsFixed(1);
-    if (${dryRun}) {
+    if ($dryRun) {
       stdout.writeln('  (dry-run) \$testPath  (\$testKb KB)');
     } else {
       testDir.createSync(recursive: true);
@@ -218,7 +218,7 @@ void main() {
 
   stdout.writeln(
     'Done. \$count file\${count == 1 ? "" : "s"} '
-    '\${${dryRun} ? "would be " : ""}written.',
+    '\${$dryRun ? "would be " : ""}written.',
   );
 }
 ''';

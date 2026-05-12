@@ -1,5 +1,4 @@
 import 'api_spec.dart';
-import 'examples.dart';
 
 /// Generates a complete, runnable `*_test.dart` from an [ApiSpec].
 ///

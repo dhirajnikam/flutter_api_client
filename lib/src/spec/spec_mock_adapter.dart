@@ -208,7 +208,7 @@ class SpecMockAdapter implements HttpAdapter {
     if (overrideStatus != null && op.errors.isNotEmpty) {
       return _gqlResponse(overrideStatus, data: null, errors: op.errors);
     }
-    return _gqlResponse(200, data: op.responseExample, errors: const []);
+    return _gqlResponse(200, data: op.responseExample);
   }
 
   GraphQLOperation? _matchGraphqlOperation(
@@ -263,7 +263,6 @@ class SpecMockAdapter implements HttpAdapter {
 
   AdapterResponse _gqlError(int statusCode, String message) => _gqlResponse(
         statusCode,
-        data: null,
         errors: [GraphQLErrorExample(message: message)],
       );
 
