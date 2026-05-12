@@ -62,6 +62,7 @@ export 'src/spec/markdown_doc_generator.dart';
 export 'src/spec/openapi_generator.dart';
 export 'src/spec/schema.dart';
 export 'src/spec/spec_mock_adapter.dart';
+export 'src/spec/test_generator.dart';
 
 // Gen
 export 'src/gen/api_spec_entry.dart';
