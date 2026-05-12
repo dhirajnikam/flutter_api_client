@@ -38,27 +38,42 @@ void main() {
     });
   });
 
-  group('CustomApiResponse', () {
-    test('success', () {
-      final r = CustomApiResponse<Map<String, dynamic>>(
-        statusCode: 200,
-        headers: const {},
-        data: const {'id': 1},
-        isSuccess: true,
-      );
-      expect(r.isSuccess, true);
-      expect(r.data, {'id': 1});
+  group('ApiClient HTTP methods return ApiResult', () {
+    late ApiClient client;
+
+    setUp(() {
+      final mock = MockAdapter();
+      mock.on('GET', '/ping', statusCode: 200, body: {'ok': true});
+      mock.on('GET', '/fail', statusCode: 404, body: {'message': 'not found'});
+      client = ApiClient(ApiClientConfig.test(
+        baseUrl: 'https://example.com',
+        adapter: mock,
+      ));
     });
-    test('error', () {
-      final r = CustomApiResponse<dynamic>(
-        statusCode: 400,
-        headers: const {},
-        data: null,
-        isSuccess: false,
-        errorMessage: 'bad',
+
+    test('success result has data and isSuccess true', () async {
+      final result = await client.get<Map<String, dynamic>>('/ping');
+      expect(result.isSuccess, true);
+      expect(result.data, {'ok': true});
+      expect(result.errorMessage, isNull);
+      expect(result.statusCode, 200);
+    });
+
+    test('failure result has errorMessage and isFailure true', () async {
+      final result = await client.get<Map<String, dynamic>>('/fail');
+      expect(result.isFailure, true);
+      expect(result.data, isNull);
+      expect(result.errorMessage, isNotNull);
+      expect(result.statusCode, 404);
+    });
+
+    test('when() dispatches to correct branch', () async {
+      final result = await client.get<Map<String, dynamic>>('/ping');
+      final out = result.when(
+        success: (d) => 'ok',
+        failure: (e) => 'fail',
       );
-      expect(r.isSuccess, false);
-      expect(r.errorMessage, 'bad');
+      expect(out, 'ok');
     });
   });
 

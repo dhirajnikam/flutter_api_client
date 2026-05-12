@@ -253,7 +253,7 @@ void main() {
       t.cancel('user navigated');
       final r = await f;
       // MockAdapter doesn't observe cancellation; behaviour is best-effort.
-      expect(r, isA<CustomApiResponse>());
+      expect(r, isA<ApiResult>());
     });
   });
 }

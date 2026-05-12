@@ -60,14 +60,14 @@ void main() {
     });
   });
 
-  group('ApiClient.request() typed path', () {
+  group('ApiClient HTTP verb typed path', () {
     test('returns Success on 200', () async {
       final mock = MockAdapter()
         ..on('GET', RegExp(r'/items$'), statusCode: 200, body: {'id': 7});
       final client = ApiClient(
         ApiClientConfig.test(baseUrl: 'https://api.example.com', adapter: mock),
       );
-      final result = await client.request<Map<String, dynamic>>('GET', 'items');
+      final result = await client.get<Map<String, dynamic>>('items');
       expect(result.isSuccess, true);
       expect((result as Success<Map<String, dynamic>>).data, {'id': 7});
       expect(result.statusCode, 200);
@@ -79,7 +79,7 @@ void main() {
       final client = ApiClient(
         ApiClientConfig.test(baseUrl: 'https://api.example.com', adapter: mock),
       );
-      final result = await client.request<dynamic>('GET', 'gone');
+      final result = await client.get<dynamic>('gone');
       expect(result.isFailure, true);
       final err = (result as Failure<dynamic>).error;
       expect(err, isA<HttpError>());
@@ -92,8 +92,7 @@ void main() {
       final client = ApiClient(
         ApiClientConfig.test(baseUrl: 'https://api.example.com', adapter: mock),
       );
-      final result = await client.request<String>(
-        'GET',
+      final result = await client.get<String>(
         'name',
         decoder: (json) => (json as Map)['name'] as String,
       );

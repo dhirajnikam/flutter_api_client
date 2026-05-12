@@ -161,7 +161,8 @@ class GraphQLClient {
         networkError: NetworkError(raw.errorMessage ?? 'transport error'),
       );
     }
-    final body = raw.data;
+    // For non-2xx HTTP responses, body lives in HttpError.body.
+    final body = raw.data ?? (raw.error is HttpError ? (raw.error as HttpError).body as Map<String, dynamic>? : null);
     if (body == null) {
       return GraphQLResponse<T>(
         statusCode: raw.statusCode ?? 0,
