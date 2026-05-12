@@ -6,3 +6,11 @@ builders:
     auto_apply: dependents
     build_to: cache
     applies_builders: ["source_gen|combining_builder"]
+
+  api_spec_test_builder:
+    import: "package:flutter_api_client/src/gen/api_spec_builder.dart"
+    builder_factories: ["apiSpecTestBuilder"]
+    build_extensions: {".dart": [".test.g.dart"]}
+    auto_apply: dependents
+    build_to: source
+    runs_before: ["source_gen|combining_builder"]

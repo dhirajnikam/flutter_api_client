@@ -22,3 +22,57 @@ ApiSpec get \$generatedSpec => $name;
 ''';
   }
 }
+
+/// Emits a standalone `.test.g.dart` smoke-test scaffold next to the annotated file.
+Builder apiSpecTestBuilder(BuilderOptions options) => _ApiSpecTestBuilder();
+
+class _ApiSpecTestBuilder implements Builder {
+  @override
+  Map<String, List<String>> get buildExtensions => {
+    '.dart': ['.test.g.dart'],
+  };
+
+  @override
+  Future<void> build(BuildStep buildStep) async {
+    if (!await buildStep.resolver.isLibrary(buildStep.inputId)) return;
+    final lib = await buildStep.resolver.libraryFor(buildStep.inputId);
+    const checker = TypeChecker.fromUrl(
+      'package:flutter_api_client/src/gen/api_spec_entry.dart#ApiSpecEntry',
+    );
+    final annotated = lib.topLevelElements
+        .where((e) => checker.hasAnnotationOf(e))
+        .toList();
+    if (annotated.isEmpty) return;
+
+    final varName = annotated.first.name!;
+    final inputBasename = buildStep.inputId.pathSegments.last;
+
+    final content = '''
+// GENERATED CODE - DO NOT MODIFY BY HAND
+// Run `dart run build_runner build` to regenerate.
+
+import 'package:flutter_api_client/flutter_api_client.dart';
+import 'package:flutter_test/flutter_test.dart';
+import './$inputBasename';
+
+void main() {
+  test('spec loads without error', () {
+    expect($varName, isNotNull);
+    expect($varName.endpoints, isNotEmpty);
+  });
+
+  group('Endpoint registration', () {
+    for (final ep in $varName.endpoints) {
+      test('\${ep.method} \${ep.path} is registered', () {
+        expect(ep.path, startsWith('/'));
+        expect(ep.method, isNotEmpty);
+      });
+    }
+  });
+}
+''';
+
+    final outputId = buildStep.inputId.changeExtension('.test.g.dart');
+    await buildStep.writeAsString(outputId, content);
+  }
+}
