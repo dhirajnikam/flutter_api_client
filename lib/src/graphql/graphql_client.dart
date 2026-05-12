@@ -152,7 +152,7 @@ class GraphQLClient {
       includeToken: includeToken,
       options: options,
     );
-    if (!raw.isSuccess && raw.statusCode == 0) {
+    if (!raw.isSuccess && (raw.statusCode ?? 0) == 0) {
       return GraphQLResponse<T>(
         statusCode: 0,
         data: null,
@@ -164,7 +164,7 @@ class GraphQLClient {
     final body = raw.data;
     if (body == null) {
       return GraphQLResponse<T>(
-        statusCode: raw.statusCode,
+        statusCode: raw.statusCode ?? 0,
         data: null,
         errors: const [],
         isSuccess: raw.isSuccess,
@@ -186,7 +186,7 @@ class GraphQLClient {
           data = decoder(dataRaw as Object);
         } catch (e, st) {
           return GraphQLResponse<T>(
-            statusCode: raw.statusCode,
+            statusCode: raw.statusCode ?? 0,
             data: null,
             errors: errors,
             isSuccess: false,
@@ -204,7 +204,7 @@ class GraphQLClient {
 
     final extensions = (body['extensions'] as Map?)?.cast<String, Object?>();
     return GraphQLResponse<T>(
-      statusCode: raw.statusCode,
+      statusCode: raw.statusCode ?? 0,
       data: data,
       errors: errors,
       isSuccess: raw.isSuccess && errors.isEmpty,

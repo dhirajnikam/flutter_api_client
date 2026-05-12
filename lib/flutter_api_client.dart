@@ -16,7 +16,6 @@ library;
 // Core
 export 'src/core/api_client.dart';
 export 'src/core/api_exception.dart';
-export 'src/core/api_response.dart';
 export 'src/core/api_result.dart';
 export 'src/core/cancel_token.dart';
 export 'src/core/form_data.dart';
