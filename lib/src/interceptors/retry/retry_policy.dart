@@ -13,6 +13,7 @@ class RetryPolicy {
     this.retryOnException = _defaultRetryOnException,
     this.useJitter = true,
     this.respectRetryAfter = true,
+    this.safeMethods = const {'GET', 'HEAD', 'OPTIONS'},
   });
 
   final int maxAttempts;
@@ -22,6 +23,7 @@ class RetryPolicy {
   final bool Function(ApiException error) retryOnException;
   final bool useJitter;
   final bool respectRetryAfter;
+  final Set<String> safeMethods;
 
   /// Exponential backoff convenience factory.
   factory RetryPolicy.exponential({
@@ -29,12 +31,14 @@ class RetryPolicy {
     Duration baseDelay = const Duration(milliseconds: 200),
     Duration maxDelay = const Duration(seconds: 30),
     Set<int>? retryOnStatus,
+    Set<String>? safeMethods,
   }) =>
       RetryPolicy(
         maxAttempts: maxAttempts,
         baseDelay: baseDelay,
         maxDelay: maxDelay,
         retryOnStatus: retryOnStatus ?? const {408, 429, 500, 502, 503, 504},
+        safeMethods: safeMethods ?? const {'GET', 'HEAD', 'OPTIONS'},
       );
 
   bool shouldRetryResponse(AdapterResponse res, int attempt) {
@@ -42,8 +46,9 @@ class RetryPolicy {
     return retryOnStatus.contains(res.statusCode);
   }
 
-  bool shouldRetryError(ApiException err, int attempt) {
+  bool shouldRetryError(ApiException err, int attempt, {String method = 'GET'}) {
     if (attempt >= maxAttempts) return false;
+    if (!safeMethods.contains(method.toUpperCase())) return false;
     return retryOnException(err);
   }
 
