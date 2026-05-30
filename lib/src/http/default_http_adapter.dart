@@ -9,21 +9,25 @@ import 'http_adapter.dart';
 
 /// Default adapter built on `package:http`.
 ///
-/// Each request gets a private [http.Client] so cancellation never affects
-/// other in-flight requests.
+/// By default each request gets a private [http.Client] so cancellation never
+/// affects other in-flight requests. Pass a shared [client] to enable HTTP
+/// connection reuse (keep-alive) across requests.
 class DefaultHttpAdapter implements HttpAdapter {
-  DefaultHttpAdapter({http.Client Function()? clientFactory})
-      : _clientFactory = clientFactory ?? (() => http.Client());
+  DefaultHttpAdapter({http.Client Function()? clientFactory, http.Client? client})
+      : _clientFactory = clientFactory ?? (() => http.Client()),
+        _sharedClient = client;
 
   final http.Client Function() _clientFactory;
+  final http.Client? _sharedClient;
 
   @override
   Future<AdapterResponse> send(AdapterRequest request) async {
-    final client = _clientFactory();
+    final ownsClient = _sharedClient == null;
+    final client = _sharedClient ?? _clientFactory();
     var cancelled = false;
     final removeListener = request.cancelToken?.addListener((err) {
       cancelled = true;
-      client.close();
+      if (ownsClient) client.close();
     });
 
     try {
@@ -91,7 +95,7 @@ class DefaultHttpAdapter implements HttpAdapter {
       throw NetworkError(e.toString(), cause: e, stackTrace: st);
     } finally {
       removeListener?.call();
-      client.close();
+      if (ownsClient) client.close();
     }
   }
 
@@ -117,7 +121,9 @@ class DefaultHttpAdapter implements HttpAdapter {
   }
 
   @override
-  void close() {}
+  void close() {
+    _sharedClient?.close();
+  }
 }
 
 /// Encodes [data] to JSON bytes for non-multipart requests.
