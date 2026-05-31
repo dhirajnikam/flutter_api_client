@@ -413,7 +413,7 @@ class ApiClient implements ApiClientInterface {
     }
     final parsed = _tryParseJson(raw);
     if (decoder != null && parsed != null) {
-      return decoder(parsed as Object);
+      return decoder(parsed);
     }
     return parsed;
   }

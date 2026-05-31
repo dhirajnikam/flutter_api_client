@@ -62,10 +62,10 @@
 /// );
 /// ```
 ///
-/// ## Version 1.0.1
-/// - Fixed generated test file imports
-/// - Enhanced documentation
-/// - Improved type safety across all modules
+/// ## Version 1.0.2
+/// - Classified malformed successful JSON/text payloads as `ParseError`
+/// - Clarified empty successful JSON-body handling
+/// - Aligned README and architecture docs with the shipped `ApiResult<T>` API
 library;
 
 // Core
