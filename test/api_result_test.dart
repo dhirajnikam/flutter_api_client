@@ -109,6 +109,24 @@ void main() {
       expect(result.statusCode, 422);
     });
 
+    test('applies decoder to non-2xx scalar JSON bodies', () async {
+      final mock = MockAdapter()
+        ..on('GET', RegExp(r'/typed-scalar-error$'),
+            statusCode: 422, body: true);
+      final client = ApiClient(
+        ApiClientConfig.test(baseUrl: 'https://api.example.com', adapter: mock),
+      );
+      final result = await client.get<String>(
+        'typed-scalar-error',
+        decoder: (json) => (json as bool) ? 'yes' : 'no',
+      );
+
+      expect(result.isFailure, true);
+      final error = (result as Failure<String>).error as HttpError;
+      expect(error.body, 'yes');
+      expect(result.statusCode, 422);
+    });
+
     test('decoder is applied on Success', () async {
       final mock = MockAdapter()
         ..on('GET', RegExp(r'/name$'), statusCode: 200, body: {'name': 'Bob'});

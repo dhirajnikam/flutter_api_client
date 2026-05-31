@@ -432,12 +432,15 @@ class ApiClient implements ApiClientInterface {
       case ResponseType.json:
         final raw = _tryDecodeUtf8(res.bodyBytes, throwOnFailure: false);
         if (raw == null) return null;
-        if (_responseHandler.isHtmlOrTextResponse(raw)) return null;
         final parsed = _tryParseJson(raw, throwOnFailure: false);
-        if (decoder != null && parsed != null) {
-          return decoder(parsed);
+        if (parsed != null) {
+          if (decoder != null) {
+            return decoder(parsed);
+          }
+          return parsed;
         }
-        return parsed;
+        if (_responseHandler.isHtmlOrTextResponse(raw)) return null;
+        return null;
     }
   }
 

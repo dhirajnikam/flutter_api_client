@@ -384,7 +384,7 @@ final nameResult = result.map((user) => user.name); // ApiResult<String>
 
 `ParseError` is used when a successful `ResponseType.json` response contains
 malformed JSON or an obvious text / HTML payload. Empty successful JSON bodies
-decode to `null`.
+decode to `null` when the requested `T` can represent `null`.
 
 ### Response body modes (`ResponseType`)
 
