@@ -155,11 +155,12 @@ dart test --concurrency=8
 - **Request deduplication**: Collapse identical in-flight requests
 - **Offline queue**: Persist failed writes for replay when online
 - **Cancel tokens**: Cancel multiple related requests simultaneously
+- **Payload size guards**: Optional request / response byte limits in the default adapter
 
 ### Developer Experience
 - **Logging interceptors**: cURL commands and pretty-printed request/response logs
 - **Custom interceptors**: Extensible request/response/error pipeline
-- **Type-safe errors**: Six typed exception classes for exhaustive error handling
+- **Type-safe errors**: Seven typed exception classes for exhaustive error handling
 - **Progress callbacks**: Track upload and download progress
 - **Timeout control**: Per-request timeout overrides
 
@@ -269,6 +270,8 @@ result.when(
 | `extraHeaders` | `Map<String, String>` | `{}` | Headers added to every request |
 | `connectTimeout` | `Duration` | 30 s | Default request timeout |
 | `authScheme` | `String` | `'Bearer'` | Prefix for `Authorization`; use `''` for a bare token |
+| `maxRequestBodyBytes` | `int?` | `null` | Optional encoded request body limit for `DefaultHttpAdapter` |
+| `maxResponseBodyBytes` | `int?` | `null` | Optional buffered response body limit for `DefaultHttpAdapter` |
 | `responseHandler` | `ResponseHandlerInterface?` | built-in | Custom error-message extractor |
 | `interceptors` | `List<Interceptor>` | `[]` | Applied in declaration order |
 | `adapter` | `HttpAdapter?` | `DefaultHttpAdapter()` | Swap transport for tests or custom HTTP stacks |
@@ -294,6 +297,13 @@ ApiClientConfig.withStorage(
 ApiClientConfig.test(
   baseUrl: 'https://api.example.com',
   adapter: MockAdapter(),
+);
+
+// Optional payload size limits (null = unlimited)
+ApiClientConfig(
+  baseUrl: 'https://api.example.com',
+  maxRequestBodyBytes: 512 * 1024,
+  maxResponseBodyBytes: 10 * 1024 * 1024,
 );
 ```
 
@@ -330,12 +340,42 @@ final res = await client.get<dynamic>(
     extraHeaders:    {'X-Client-Version': '3.0'},
     responseType:    ResponseType.json,
     cancelToken:     myToken,
-    cachePolicy:     CachePolicy.networkFirst(),
-    retryPolicy:     RetryPolicy(maxAttempts: 1),
-    onReceiveProgress: (received, total) => print('$received/$total'),
+    cachePolicy:        CachePolicy.networkFirst(),
+    retryPolicy:        RetryPolicy(maxAttempts: 1),
+    maxRequestBodyBytes: 64 * 1024,
+    maxResponseBodyBytes: 512 * 1024,
+    onReceiveProgress:  (received, total) => print('$received/$total'),
   ),
 );
 ```
+
+### Payload size limits
+
+`DefaultHttpAdapter` can enforce optional encoded request and buffered response
+body limits. Both limits default to `null`, which preserves the current
+unlimited behavior.
+
+If a configured limit is exceeded, the request fails with
+`PayloadTooLargeError`.
+
+```dart
+final client = ApiClient(
+  ApiClientConfig(
+    baseUrl: 'https://api.example.com',
+    maxRequestBodyBytes: 512 * 1024,
+    maxResponseBodyBytes: 10 * 1024 * 1024,
+  ),
+);
+
+final result = await client.get<dynamic>(
+  'feed',
+  options: const RequestOptions(maxResponseBodyBytes: 256 * 1024),
+);
+```
+
+Custom adapters may ignore these limits unless they implement the same policy.
+
+---
 
 ### Decoder
 
@@ -415,6 +455,7 @@ All exceptions from `ApiClient` derive from the sealed `ApiException`:
 | `NetworkError` | DNS, socket, or connectivity failure |
 | `TimeoutError` | Request exceeded its timeout |
 | `CancelError` | Cancelled via `CancelToken.cancel()` |
+| `PayloadTooLargeError` | Configured request or response byte limit was exceeded |
 | `HttpError` | Non-2xx response (carries `statusCode`, `body`, `headers`) |
 | `ParseError` | Response body could not be decoded |
 | `UnknownError` | Any other unexpected exception |
@@ -1187,6 +1228,7 @@ class MyAdapter implements HttpAdapter {
 | `NetworkError` | I/O / connectivity failure |
 | `TimeoutError` | Request timed out |
 | `CancelError` | Cancelled via `CancelToken` |
+| `PayloadTooLargeError` | Configured payload byte limit exceeded |
 | `HttpError` | Non-2xx HTTP status (carries `statusCode`, `body`, `headers`) |
 | `ParseError` | Response body decode failure |
 | `UnknownError` | Catch-all |
