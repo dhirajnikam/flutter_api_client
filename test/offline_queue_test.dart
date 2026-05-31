@@ -136,7 +136,7 @@ void main() {
           method: 'POST',
           endpoint: '/earlier',
           headers: const {},
-          createdAt: DateTime(2024, 1, 1),
+          createdAt: DateTime(2024),
         ),
       );
 
