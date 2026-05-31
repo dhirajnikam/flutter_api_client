@@ -403,15 +403,9 @@ class ApiClient implements ApiClientInterface {
     AdapterResponse res,
     T Function(Object json)? decoder,
   ) {
-    if (res.bodyBytes.isEmpty) return null;
-    final raw = utf8.decode(res.bodyBytes);
-    if (raw.trim().isEmpty) return null;
-    if (_responseHandler.isHtmlOrTextResponse(raw)) {
-      throw const ParseError(
-        'Expected JSON response body but received text/html.',
-      );
-    }
-    final parsed = _tryParseJson(raw);
+    final raw = _tryDecodeUtf8(res.bodyBytes);
+    if (raw == null) return null;
+    final parsed = _tryParseJsonWithClassification(raw);
     if (decoder != null && parsed != null) {
       return decoder(parsed);
     }
@@ -427,11 +421,45 @@ class ApiClient implements ApiClientInterface {
       case ResponseType.stream:
         return res.bodyBytes;
       case ResponseType.json:
-        if (res.bodyBytes.isEmpty) return null;
-        final raw = utf8.decode(res.bodyBytes);
-        if (raw.trim().isEmpty) return null;
+        final raw = _tryDecodeUtf8(res.bodyBytes, throwOnFailure: false);
+        if (raw == null) return null;
         if (_responseHandler.isHtmlOrTextResponse(raw)) return null;
         return _tryParseJson(raw, throwOnFailure: false);
+    }
+  }
+
+  String? _tryDecodeUtf8(
+    List<int> bodyBytes, {
+    bool throwOnFailure = true,
+  }) {
+    if (bodyBytes.isEmpty) return null;
+    try {
+      final raw = utf8.decode(bodyBytes);
+      return raw.trim().isEmpty ? null : raw;
+    } on FormatException catch (e, st) {
+      if (!throwOnFailure) return null;
+      throw ParseError(
+        'Failed to decode response body as UTF-8.',
+        cause: e,
+        stackTrace: st,
+      );
+    }
+  }
+
+  Object? _tryParseJsonWithClassification(String raw) {
+    try {
+      return jsonDecode(raw);
+    } on FormatException catch (e, st) {
+      if (_responseHandler.isHtmlOrTextResponse(raw)) {
+        throw const ParseError(
+          'Expected JSON response body but received text/html.',
+        );
+      }
+      throw ParseError(
+        'Failed to parse JSON response.',
+        cause: e,
+        stackTrace: st,
+      );
     }
   }
 

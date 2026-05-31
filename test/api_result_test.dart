@@ -144,6 +144,42 @@ void main() {
       expect(error.message, contains('Expected JSON response body'));
     });
 
+    test('accepts valid short JSON scalar success bodies', () async {
+      final mock = MockAdapter()
+        ..onRequest('GET', RegExp(r'/scalar$'), (_) async => AdapterResponse(
+              statusCode: 200,
+              headers: const {'content-type': 'application/json'},
+              bodyBytes: Uint8List.fromList(utf8.encode('true')),
+            ));
+      final client = ApiClient(
+        ApiClientConfig.test(baseUrl: 'https://example.com', adapter: mock),
+      );
+
+      final result = await client.get<bool>('scalar');
+
+      expect(result.isSuccess, true);
+      expect(result.data, true);
+    });
+
+    test('returns Failure with ParseError on invalid utf8 success body', () async {
+      final mock = MockAdapter()
+        ..onRequest('GET', RegExp(r'/invalid-utf8-success$'),
+            (_) async => AdapterResponse(
+                  statusCode: 200,
+                  headers: const {'content-type': 'application/json'},
+                  bodyBytes: Uint8List.fromList([0x80]),
+                ));
+      final client = ApiClient(
+        ApiClientConfig.test(baseUrl: 'https://example.com', adapter: mock),
+      );
+
+      final result = await client.get<dynamic>('invalid-utf8-success');
+
+      expect(result.isFailure, true);
+      final error = (result as Failure<dynamic>).error;
+      expect(error, isA<ParseError>());
+    });
+
     test('returns Success with null data on empty successful JSON body', () async {
       final mock = MockAdapter()
         ..onRequest('GET', RegExp(r'/no-content$'), (_) async => AdapterResponse(
@@ -174,6 +210,26 @@ void main() {
       );
 
       final result = await client.get<dynamic>('server-error');
+
+      expect(result.isFailure, true);
+      final error = (result as Failure<dynamic>).error;
+      expect(error, isA<HttpError>());
+      expect((error as HttpError).statusCode, 500);
+    });
+
+    test('keeps non-2xx invalid utf8 payloads as HttpError', () async {
+      final mock = MockAdapter()
+        ..onRequest('GET', RegExp(r'/invalid-utf8-error$'),
+            (_) async => AdapterResponse(
+                  statusCode: 500,
+                  headers: const {'content-type': 'application/json'},
+                  bodyBytes: Uint8List.fromList([0x80]),
+                ));
+      final client = ApiClient(
+        ApiClientConfig.test(baseUrl: 'https://example.com', adapter: mock),
+      );
+
+      final result = await client.get<dynamic>('invalid-utf8-error');
 
       expect(result.isFailure, true);
       final error = (result as Failure<dynamic>).error;
