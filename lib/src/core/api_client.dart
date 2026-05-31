@@ -196,27 +196,32 @@ class ApiClient implements ApiClientInterface {
       );
       final responseType = options?.responseType ?? ResponseType.json;
       final isSuccess = res.statusCode >= 200 && res.statusCode < 300;
-      final parsed = isSuccess
-          ? _decodeSuccessBody<T>(res, responseType, decoder)
-          : _decodeErrorBody(res, responseType);
-      if (isSuccess) {
-        return Success<T>(
-          parsed as T,
+      try {
+        final parsed = switch (isSuccess) {
+          true => _decodeSuccessBody<T>(res, responseType, decoder),
+          false => _decodeErrorBody<T>(res, responseType, decoder),
+        };
+        if (isSuccess) {
+          return Success<T>(
+            parsed as T,
+            statusCode: res.statusCode,
+            headers: res.headers,
+          );
+        }
+        final msg =
+            _responseHandler.handleResponse(res) ?? 'HTTP ${res.statusCode}';
+        return Failure<T>(
+          HttpError(
+            msg,
+            statusCode: res.statusCode,
+            body: parsed,
+            headers: res.headers,
+          ),
           statusCode: res.statusCode,
-          headers: res.headers,
         );
+      } on ApiException catch (e) {
+        return Failure<T>(e, statusCode: res.statusCode);
       }
-      final msg =
-          _responseHandler.handleResponse(res) ?? 'HTTP ${res.statusCode}';
-      return Failure<T>(
-        HttpError(
-          msg,
-          statusCode: res.statusCode,
-          body: parsed,
-          headers: res.headers,
-        ),
-        statusCode: res.statusCode,
-      );
     } on ApiException catch (e) {
       return Failure<T>(e);
     } catch (e, st) {
@@ -412,7 +417,11 @@ class ApiClient implements ApiClientInterface {
     return parsed;
   }
 
-  Object? _decodeErrorBody(AdapterResponse res, ResponseType type) {
+  Object? _decodeErrorBody<T>(
+    AdapterResponse res,
+    ResponseType type,
+    T Function(Object json)? decoder,
+  ) {
     switch (type) {
       case ResponseType.bytes:
         return res.bodyBytes;
@@ -424,7 +433,11 @@ class ApiClient implements ApiClientInterface {
         final raw = _tryDecodeUtf8(res.bodyBytes, throwOnFailure: false);
         if (raw == null) return null;
         if (_responseHandler.isHtmlOrTextResponse(raw)) return null;
-        return _tryParseJson(raw, throwOnFailure: false);
+        final parsed = _tryParseJson(raw, throwOnFailure: false);
+        if (decoder != null && parsed != null) {
+          return decoder(parsed);
+        }
+        return parsed;
     }
   }
 
