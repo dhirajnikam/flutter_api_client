@@ -107,11 +107,31 @@ void main() {
       const o = RequestOptions();
       expect(o.includeToken, true);
       expect(o.responseType, ResponseType.json);
+      expect(o.maxRequestBodyBytes, isNull);
+      expect(o.maxResponseBodyBytes, isNull);
     });
+
     test('copyWith', () {
       const o = RequestOptions();
-      final n = o.copyWith(includeToken: false);
+      final n = o.copyWith(
+        includeToken: false,
+        maxRequestBodyBytes: 10,
+        maxResponseBodyBytes: 20,
+      );
       expect(n.includeToken, false);
+      expect(n.maxRequestBodyBytes, 10);
+      expect(n.maxResponseBodyBytes, 20);
+    });
+  });
+
+  group('ApiClientConfig body limits', () {
+    test('test config keeps body limits null by default', () {
+      final config = ApiClientConfig.test(
+        baseUrl: 'https://api.example.com',
+        adapter: MockAdapter(),
+      );
+      expect(config.maxRequestBodyBytes, isNull);
+      expect(config.maxResponseBodyBytes, isNull);
     });
   });
 
