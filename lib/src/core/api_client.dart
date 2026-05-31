@@ -25,6 +25,8 @@ class ApiClientConfig {
     this.extraHeaders = const {},
     this.connectTimeout = const Duration(seconds: 30),
     this.authScheme = 'Bearer',
+    this.maxRequestBodyBytes,
+    this.maxResponseBodyBytes,
     this.responseHandler,
     this.interceptors = const [],
     this.adapter,
@@ -37,6 +39,8 @@ class ApiClientConfig {
   final Map<String, String> extraHeaders;
   final Duration connectTimeout;
   final String authScheme;
+  final int? maxRequestBodyBytes;
+  final int? maxResponseBodyBytes;
   final ResponseHandlerInterface? responseHandler;
   final List<Interceptor> interceptors;
   final HttpAdapter? adapter;
@@ -48,6 +52,8 @@ class ApiClientConfig {
     Map<String, String> extraHeaders = const {},
     Duration connectTimeout = const Duration(seconds: 30),
     String authScheme = 'Bearer',
+    int? maxRequestBodyBytes,
+    int? maxResponseBodyBytes,
     List<Interceptor> interceptors = const [],
   }) =>
       ApiClientConfig(
@@ -57,6 +63,8 @@ class ApiClientConfig {
         extraHeaders: extraHeaders,
         connectTimeout: connectTimeout,
         authScheme: authScheme,
+        maxRequestBodyBytes: maxRequestBodyBytes,
+        maxResponseBodyBytes: maxResponseBodyBytes,
         interceptors: interceptors,
       );
 
@@ -67,6 +75,8 @@ class ApiClientConfig {
     Map<String, String> extraHeaders = const {},
     Duration connectTimeout = const Duration(seconds: 30),
     String authScheme = 'Bearer',
+    int? maxRequestBodyBytes,
+    int? maxResponseBodyBytes,
     List<Interceptor> interceptors = const [],
   }) =>
       ApiClientConfig(
@@ -76,17 +86,23 @@ class ApiClientConfig {
         extraHeaders: extraHeaders,
         connectTimeout: connectTimeout,
         authScheme: authScheme,
+        maxRequestBodyBytes: maxRequestBodyBytes,
+        maxResponseBodyBytes: maxResponseBodyBytes,
         interceptors: interceptors,
       );
 
   factory ApiClientConfig.test({
     required String baseUrl,
     required HttpAdapter adapter,
+    int? maxRequestBodyBytes,
+    int? maxResponseBodyBytes,
     List<Interceptor> interceptors = const [],
   }) =>
       ApiClientConfig(
         baseUrl: baseUrl,
         adapter: adapter,
+        maxRequestBodyBytes: maxRequestBodyBytes,
+        maxResponseBodyBytes: maxResponseBodyBytes,
         interceptors: interceptors,
       );
 }
@@ -337,6 +353,8 @@ class ApiClient implements ApiClientInterface {
         cancelToken: req.options.cancelToken,
         onSendProgress: req.options.onSendProgress,
         onReceiveProgress: req.options.onReceiveProgress,
+        maxRequestBodyBytes: req.options.maxRequestBodyBytes,
+        maxResponseBodyBytes: req.options.maxResponseBodyBytes,
       ),
     );
   }
@@ -352,6 +370,10 @@ class ApiClient implements ApiClientInterface {
       includeToken: effectiveIncludeToken,
       timeout: effectiveTimeout,
       baseUrlOverride: effectiveBaseUrl,
+      maxRequestBodyBytes:
+          options?.maxRequestBodyBytes ?? _config.maxRequestBodyBytes,
+      maxResponseBodyBytes:
+          options?.maxResponseBodyBytes ?? _config.maxResponseBodyBytes,
     );
   }
 

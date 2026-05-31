@@ -17,6 +17,8 @@ class AdapterRequest {
     this.cancelToken,
     this.onSendProgress,
     this.onReceiveProgress,
+    this.maxRequestBodyBytes,
+    this.maxResponseBodyBytes,
   });
 
   final String method;
@@ -32,6 +34,9 @@ class AdapterRequest {
   final CancelToken? cancelToken;
   final ProgressCallback? onSendProgress;
   final ProgressCallback? onReceiveProgress;
+
+  final int? maxRequestBodyBytes;
+  final int? maxResponseBodyBytes;
 }
 
 /// Low-level response returned by an [HttpAdapter].

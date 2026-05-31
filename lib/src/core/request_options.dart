@@ -22,6 +22,8 @@ class RequestOptions {
     this.onReceiveProgress,
     this.retryPolicy,
     this.cachePolicy,
+    this.maxRequestBodyBytes,
+    this.maxResponseBodyBytes,
     this.tag,
   });
 
@@ -65,6 +67,12 @@ class RequestOptions {
   /// Typed as [Object?] to avoid a circular import between core and interceptors.
   final Object? cachePolicy;
 
+  /// Override the maximum encoded request body size in bytes.
+  final int? maxRequestBodyBytes;
+
+  /// Override the maximum buffered response body size in bytes.
+  final int? maxResponseBodyBytes;
+
   /// Arbitrary tag for interceptors to inspect.
   final Object? tag;
 
@@ -81,6 +89,8 @@ class RequestOptions {
     ProgressCallback? onReceiveProgress,
     Object? retryPolicy,
     Object? cachePolicy,
+    int? maxRequestBodyBytes,
+    int? maxResponseBodyBytes,
     Object? tag,
   }) =>
       RequestOptions(
@@ -96,6 +106,9 @@ class RequestOptions {
         onReceiveProgress: onReceiveProgress ?? this.onReceiveProgress,
         retryPolicy: retryPolicy ?? this.retryPolicy,
         cachePolicy: cachePolicy ?? this.cachePolicy,
+        maxRequestBodyBytes: maxRequestBodyBytes ?? this.maxRequestBodyBytes,
+        maxResponseBodyBytes:
+            maxResponseBodyBytes ?? this.maxResponseBodyBytes,
         tag: tag ?? this.tag,
       );
 }

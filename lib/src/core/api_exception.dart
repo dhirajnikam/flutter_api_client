@@ -54,6 +54,22 @@ final class ParseError extends ApiException {
   const ParseError(super.message, {super.cause, super.stackTrace});
 }
 
+/// Request or response payload exceeded a configured byte limit.
+final class PayloadTooLargeError extends ApiException {
+  const PayloadTooLargeError(
+    super.message, {
+    this.limitBytes,
+    this.actualBytes,
+    this.direction,
+    super.cause,
+    super.stackTrace,
+  });
+
+  final int? limitBytes;
+  final int? actualBytes;
+  final String? direction;
+}
+
 /// Catch-all for anything else.
 final class UnknownError extends ApiException {
   const UnknownError(super.message, {super.cause, super.stackTrace});
