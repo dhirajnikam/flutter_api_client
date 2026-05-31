@@ -57,6 +57,8 @@ class DefaultHttpAdapter implements HttpAdapter {
         httpRequest = r;
       }
 
+      _checkRequestSize(httpRequest, request.maxRequestBodyBytes);
+
       _reportSendProgress(httpRequest, request.onSendProgress);
       request.cancelToken?.throwIfCancelled();
 
@@ -70,8 +72,18 @@ class DefaultHttpAdapter implements HttpAdapter {
         if (cancelled) {
           throw request.cancelToken?.error ?? const CancelError();
         }
+        final nextReceived = received + chunk.length;
+        final maxResponseBodyBytes = request.maxResponseBodyBytes;
+        if (maxResponseBodyBytes != null && nextReceived > maxResponseBodyBytes) {
+          if (ownsClient) client.close();
+          _throwPayloadTooLarge(
+            direction: 'response',
+            limitBytes: maxResponseBodyBytes,
+            actualBytes: nextReceived,
+          );
+        }
+        received = nextReceived;
         chunks.add(chunk);
-        received += chunk.length;
         request.onReceiveProgress?.call(received, total);
       }
       request.cancelToken?.throwIfCancelled();
@@ -91,7 +103,7 @@ class DefaultHttpAdapter implements HttpAdapter {
         cause: e,
         stackTrace: st,
       );
-    } on CancelError {
+    } on ApiException {
       rethrow;
     } catch (e, st) {
       if (request.cancelToken?.isCancelled ?? false) {
@@ -123,6 +135,30 @@ class DefaultHttpAdapter implements HttpAdapter {
     } else if (request is http.MultipartRequest) {
       cb(total, total);
     }
+  }
+
+  void _checkRequestSize(http.BaseRequest request, int? maxBytes) {
+    if (maxBytes == null) return;
+    final total = request.contentLength;
+    if (total == null || total <= maxBytes) return;
+    _throwPayloadTooLarge(
+      direction: 'request',
+      limitBytes: maxBytes,
+      actualBytes: total,
+    );
+  }
+
+  Never _throwPayloadTooLarge({
+    required String direction,
+    required int limitBytes,
+    required int actualBytes,
+  }) {
+    throw PayloadTooLargeError(
+      '$direction body exceeded configured limit of $limitBytes bytes',
+      limitBytes: limitBytes,
+      actualBytes: actualBytes,
+      direction: direction,
+    );
   }
 
   @override
