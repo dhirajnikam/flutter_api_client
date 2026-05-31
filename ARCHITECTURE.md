@@ -249,7 +249,7 @@ error handling.
 
 For `ResponseType.json` responses:
 
-- empty successful bodies decode to `null`
+- empty successful bodies decode to `null` when the requested `T` can represent `null`
 - malformed successful JSON bodies raise `ParseError`
 - obvious text / HTML successful bodies raise `ParseError`
 - non-2xx responses remain `HttpError`, even if their body is malformed

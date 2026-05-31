@@ -55,7 +55,7 @@
 ///   ),
 /// );
 ///
-/// final result = await client.get<User>('users/me', decoder: User.fromJson);
+/// final result = await client.get<User>('users/me', decoder: (json) => User.fromJson(json as Map<String, dynamic>));
 /// result.when(
 ///   success: (user) => print('Hello ${user.name}'),
 ///   failure: (error) => print('Error: ${error.message}'),

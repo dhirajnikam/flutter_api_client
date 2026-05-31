@@ -224,7 +224,7 @@ section in the README.
 ### Migration
 * `await client.get('users')` ⇒ `await client.get<dynamic>('users')`.
 * `final res = await client.get(...); if (res.isSuccess) ...` still works.
-* For new code prefer `client.request<User>('GET', 'users/me', decoder: User.fromJson)`
+* For new code prefer `client.get<User>('users/me', decoder: (json) => User.fromJson(json as Map<String, dynamic>))`
   which returns `ApiResult<User>`.
 * Replace single-interceptor config with the `interceptors:` list.
 

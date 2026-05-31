@@ -93,7 +93,7 @@ final apiClient = ApiClient(
 
 ## 5. Make requests — ApiResult\<T\>
 
-All methods return `ApiResult<T>`, a sealed class with two subtypes: `ApiSuccess<T>` and `ApiFailure<T>`.
+All methods return `ApiResult<T>`, a sealed class with two subtypes: `Success<T>` and `Failure<T>`.
 
 ```dart
 // Pattern A — isSuccess check
@@ -105,21 +105,21 @@ if (result.isSuccess) {
 }
 
 // Pattern B — when()
-final result = await apiClient.post<Map<String, dynamic>>(
+final created = await apiClient.post<Map<String, dynamic>>(
   'users',
   {'name': 'Alice', 'email': 'alice@example.com'},
 );
-result.when(
-  success: (data, statusCode, headers) => print('Created: $data'),
-  failure: (error, statusCode, headers) => print('Error $statusCode: $error'),
+created.when(
+  success: (data) => print('Created: $data'),
+  failure: (error) => print('Error: ${error.message}'),
 );
 
 // Pattern C — switch (Dart 3)
-switch (result) {
-  case ApiSuccess(:final data):
+switch (created) {
+  case Success(:final data):
     print(data);
-  case ApiFailure(:final errorMessage):
-    print(errorMessage);
+  case Failure(:final error):
+    print(error.message);
 }
 ```
 

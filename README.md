@@ -244,10 +244,9 @@ if (res.isSuccess) {
 }
 
 // Typed result pattern (recommended for new code)
-final result = await client.request<User>(
-  'GET',
+final result = await client.get<User>(
   'users/me',
-  decoder: User.fromJson,
+  decoder: (json) => User.fromJson(json as Map<String, dynamic>),
 );
 result.when(
   success: (user) => print('Hello ${user.name}'),
@@ -681,10 +680,30 @@ final store = InMemoryOfflineQueueStore();
 // ...when online:
 final pending = await store.drain();
 for (final req in pending) {
-  try {
-    await client.request<dynamic>(req.method, req.endpoint);
-    // already removed from store by drain()
-  } catch (_) {
+  final result = switch (req.method.toUpperCase()) {
+    'POST' => await client.post<dynamic>(
+        req.endpoint,
+        req.body,
+        options: RequestOptions(headers: req.headers),
+      ),
+    'PUT' => await client.put<dynamic>(
+        req.endpoint,
+        req.body,
+        options: RequestOptions(headers: req.headers),
+      ),
+    'PATCH' => await client.patch<dynamic>(
+        req.endpoint,
+        req.body,
+        options: RequestOptions(headers: req.headers),
+      ),
+    'DELETE' => await client.delete<dynamic>(
+        req.endpoint,
+        options: RequestOptions(headers: req.headers),
+      ),
+    _ => const Failure<dynamic>(UnknownError('Unsupported queued method')),
+  };
+
+  if (result.isFailure) {
     await store.enqueue(req); // re-enqueue on failure
   }
 }
