@@ -1,3 +1,37 @@
+## 1.0.2
+
+**Release Date**: 2026-05-31  
+**Type**: Patch Release (Core correctness + Documentation)  
+**Breaking Changes**: None
+
+This release tightens HTTP response parsing, improves maintainability in the core request path, and aligns the package documentation with the shipped API surface. Fully backward compatible with 1.0.1.
+
+### Fixed
+* **HTTP Parse Classification**: Successful `ResponseType.json` responses that contain malformed JSON now return `Failure(ParseError)` instead of degrading into nullable/unknown behavior
+* **Text/HTML Payload Handling**: Successful JSON-mode responses with obvious text or HTML payloads now return `Failure(ParseError)`
+* **No-Content Success Semantics**: Empty successful JSON responses are handled explicitly and continue to decode to `null`
+
+### Internal Improvements
+* **ApiClient Decomposition**: Split request option resolution, header construction, payload building, and response decoding into smaller private helpers
+* **Error Mapping**: Kept non-2xx malformed payloads classified as `HttpError` so HTTP status remains the primary failure signal
+
+### Documentation
+* **README.md**: Removed stale `CustomApiResponse` / `client.request()` documentation and aligned all HTTP result examples with `ApiResult<T>`
+* **ARCHITECTURE.md**: Updated the architecture narrative to reflect the shipped result type and parse behavior
+* **Library Dartdoc**: Refreshed release notes in `lib/flutter_api_client.dart`
+
+### Quality Improvements
+* **Regression Coverage**: Added tests for malformed successful JSON, successful HTML/text payloads in JSON mode, explicit empty-body success handling, and malformed non-2xx payload preservation
+* **Verification**: `flutter test` passes with 138 tests
+
+### Upgrade Guide
+```yaml
+dependencies:
+  flutter_api_client: ^1.0.2
+```
+
+No code changes required for existing callers.
+
 ## 1.0.1
 
 **Release Date**: 2026-05-12  
@@ -190,7 +224,7 @@ section in the README.
 ### Migration
 * `await client.get('users')` ⇒ `await client.get<dynamic>('users')`.
 * `final res = await client.get(...); if (res.isSuccess) ...` still works.
-* For new code prefer `client.request<User>('GET', 'users/me', decoder: User.fromJson)`
+* For new code prefer `client.get<User>('users/me', decoder: (json) => User.fromJson(json as Map<String, dynamic>))`
   which returns `ApiResult<User>`.
 * Replace single-interceptor config with the `interceptors:` list.
 
