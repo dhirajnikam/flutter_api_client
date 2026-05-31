@@ -17,7 +17,7 @@ This document describes the internal architecture of `flutter_api_client` to hel
 │                        ApiClient                             │
 │  • Typed HTTP methods (get, post, put, patch, delete)      │
 │  • Request orchestration                                     │
-│  • Result type conversion (CustomApiResponse / ApiResult)   │
+│  • Result type conversion (`ApiResult<T>`)                  │
 └────────────┬────────────────────────────────────────────────┘
              │
              ▼
@@ -66,16 +66,17 @@ The main entry point for making HTTP requests.
 **Key Methods:**
 
 ```dart
-// High-level typed method
-Future<CustomApiResponse<T>> get<T>(String endpoint, {...})
-
-// Low-level sealed result
-Future<ApiResult<T>> request<T>(String method, String endpoint, {...})
+Future<ApiResult<T>> get<T>(String endpoint, {...})
+Future<ApiResult<T>> post<T>(String endpoint, dynamic data, {...})
+Future<ApiResult<T>> put<T>(String endpoint, dynamic data, {...})
+Future<ApiResult<T>> patch<T>(String endpoint, dynamic data, {...})
+Future<ApiResult<T>> delete<T>(String endpoint, {...})
 ```
 
-**Design Decision**: Two result types serve different use cases:
-- `CustomApiResponse<T>`: Simple, nullable fields, easy to use
-- `ApiResult<T>`: Exhaustive matching, better for complex error handling
+**Design Decision**: One result type serves both common call sites and typed
+error handling. `Success<T>` carries the decoded body, status code, and
+headers. `Failure<T>` carries a typed `ApiException` with the optional HTTP
+status code.
 
 ### 2. InterceptorChain (`lib/src/interceptors/interceptor_chain.dart`)
 
@@ -218,44 +219,40 @@ delay = min(baseDelay * 2^attempt + jitter, maxDelay)
 
 ## Result Types
 
-### CustomApiResponse<T>
-
-**Location**: `lib/src/core/api_client.dart`
-
-Simple response wrapper:
-
-```dart
-class CustomApiResponse<T> {
-  final bool isSuccess;
-  final int statusCode;
-  final T? data;
-  final String? errorMessage;
-  final Map<String, String> headers;
-  final List<int>? rawBody;
-}
-```
-
-**Use Case**: Quick checks, prototyping, simple error handling
-
 ### ApiResult<T>
 
 **Location**: `lib/src/core/api_result.dart`
 
-Sealed result type:
+Sealed result type returned by all HTTP verb methods:
 
 ```dart
 sealed class ApiResult<T> {
-  factory ApiResult.success(...) = Success<T>;
-  factory ApiResult.failure(...) = Failure<T>;
-  
+  bool get isSuccess;
+  bool get isFailure;
+  T? get data;
+  ApiException? get error;
+  String? get errorMessage;
+  int? get statusCode;
+  Map<String, String> get headers;
+
   R when<R>({
-    required R Function(T data, int statusCode, ...) success,
-    required R Function(ApiException error, int? statusCode, ...) failure,
+    required R Function(T data) success,
+    required R Function(ApiException error) failure,
   });
 }
 ```
 
-**Use Case**: Exhaustive error handling, type-safe pattern matching
+**Use Case**: One result model for both convenience checks and exhaustive
+error handling.
+
+### Parse behavior
+
+For `ResponseType.json` responses:
+
+- empty successful bodies decode to `null`
+- malformed successful JSON bodies raise `ParseError`
+- obvious text / HTML successful bodies raise `ParseError`
+- non-2xx responses remain `HttpError`, even if their body is malformed
 
 ## Exception Hierarchy
 

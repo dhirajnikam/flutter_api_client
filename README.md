@@ -353,40 +353,38 @@ final res = await client.get<User>(
 
 ## Response types
 
-### `CustomApiResponse<T>` — returned by all verb methods
+### `ApiResult<T>` — returned by all verb methods
+
+All HTTP verb methods (`get`, `post`, `put`, `patch`, `delete`) return the same
+sealed result type:
 
 ```dart
-res.isSuccess    // true for any 2xx status
-res.statusCode   // HTTP status code (0 on transport error)
-res.data         // T? — decoded body, or null
-res.errorMessage // String? — populated when isSuccess is false
-res.headers      // Map<String, String>
-res.rawBody      // List<int>? — raw response bytes
-```
-
-### `ApiResult<T>` — returned by `client.request()`
-
-A sealed type; exhaustively match with `when`:
-
-```dart
-final result = await client.request<User>(
-  'GET', 'users/me', decoder: User.fromJson,
+final result = await client.get<User>(
+  'users/me',
+  decoder: (json) => User.fromJson(json as Map<String, dynamic>),
 );
 
 result.when(
-  success: (user) => ...,
-  failure: (err)  => ...,
+  success: (user) => print(user.name),
+  failure: (err) => print(err.message),
 );
 
 // Convenience helpers
 result.isSuccess   // bool
 result.isFailure   // bool
-result.dataOrNull  // T?
-result.errorOrNull // ApiException?
+result.data        // T?
+result.error       // ApiException?
+result.errorMessage // String?
+result.statusCode  // int?
+result.headers     // Map<String, String>
 
 // Transform the success value without unwrapping
 final nameResult = result.map((user) => user.name); // ApiResult<String>
 ```
+
+`ParseError` is used when a successful `ResponseType.json` response contains
+malformed JSON or an obvious text / HTML payload. Empty successful JSON bodies
+decode to `null`.
 
 ### Response body modes (`ResponseType`)
 
@@ -422,14 +420,10 @@ All exceptions from `ApiClient` derive from the sealed `ApiException`:
 | `ParseError` | Response body could not be decoded |
 | `UnknownError` | Any other unexpected exception |
 
-**`CustomApiResponse` path:** exceptions are swallowed into
-`isSuccess: false` + `errorMessage` — safe and simple, but less structured.
-
-**`ApiResult` path:** exceptions surface as typed `Failure` — exhaustive
-matching is possible:
+`Failure` carries a typed `ApiException`, so exhaustive matching is possible:
 
 ```dart
-final result = await client.request<dynamic>('GET', 'users/1');
+final result = await client.get<dynamic>('users/1');
 if (result case Failure(:final error)) {
   switch (error) {
     case NetworkError(:final message):
@@ -438,6 +432,8 @@ if (result case Failure(:final error)) {
       navigateToLogin();
     case TimeoutError():
       showRetryDialog();
+    case ParseError():
+      showUnexpectedPayloadDialog();
     default:
       logError(error);
   }
@@ -1162,8 +1158,7 @@ class MyAdapter implements HttpAdapter {
 | `ApiClient` | Main HTTP client |
 | `ApiClientConfig` | Configuration value object |
 | `ApiClientInterface` | Abstract contract for `get/post/put/patch/delete` |
-| `CustomApiResponse<T>` | Response from verb methods |
-| `ApiResult<T>` | Sealed typed result from `client.request()` |
+| `ApiResult<T>` | Sealed result returned by all HTTP verb methods |
 | `Success<T>` | Successful `ApiResult` (carries `data`, `statusCode`, `headers`) |
 | `Failure<T>` | Failed `ApiResult` (carries `error`, optional `statusCode`) |
 | `ApiException` | Sealed base class for all errors |
@@ -1241,7 +1236,7 @@ class MyAdapter implements HttpAdapter {
 |---|---|
 | `client.get('users')` | `client.get<dynamic>('users')` |
 | `ApiClientConfig(requestInterceptor: x, responseInterceptor: y)` | `ApiClientConfig(interceptors: [x, y])` |
-| Untyped `CustomApiResponse` | `CustomApiResponse<T>` (`T` defaults to `dynamic`) |
+| Untyped response wrapper | `ApiResult<T>` (`T` defaults to `dynamic`) |
 | Manual 401 retry logic | Built-in via `AuthInterceptor` + `refreshToken` |
 | Manual retry-on-503 | `RetryInterceptor(policy: RetryPolicy.exponential(...))` |
 | `lib/core/api_client.dart` | `lib/src/core/api_client.dart` |
@@ -1251,26 +1246,27 @@ class MyAdapter implements HttpAdapter {
 
 ## Test suite
 
-**107 tests — all passing** (verified against actual source code):
+**138 tests — all passing** (verified with `flutter test`):
 
-```
+```text
 $ flutter test
-All 107 tests passed.
+All tests passed.
 ```
 
-| File | Tests | Coverage |
-|---|---|---|
-| `flutter_api_client_test.dart` | 16 | Client instantiation, `CustomApiResponse`, `MemoryTokenStorage`, `CachedTokenStorage`, `RequestOptions`, `CancelToken`, `buildQueryString` |
-| `api_result_test.dart` | 17 | `ApiResult.when/map/dataOrNull/errorOrNull/isSuccess`, `ApiClient.request()` typed path, all six `ApiException` subtypes |
-| `mock_adapter_test.dart` | 9 | `MockAdapter` routing + capture, `RetryInterceptor` (503), `DedupInterceptor`, `CacheInterceptor` (cacheFirst), `AuthInterceptor` 401 refresh queue, `CancelToken` abort |
-| `retry_error_test.dart` | 4 | `RetryInterceptor.onError`: `NetworkError` retry, `TimeoutError` retry, exhaustion after max attempts, no retry on `HttpError` |
-| `cache_interceptor_test.dart` | 9 | `networkFirst`, `cacheOnly` (miss + populated), `staleWhileRevalidate`, ETag / 304, `MemoryCacheStore` LRU eviction / clear / delete |
-| `offline_queue_test.dart` | 9 | `InMemoryOfflineQueueStore` enqueue / drain / remove / `toJson`, `OfflineQueueInterceptor` enqueue on `NetworkError` / `TimeoutError`, skip on GET / `isOnline=true` / `HttpError` |
-| `logger_test.dart` | 7 | `CurlLogger` format, redaction, body inclusion; `PrettyLogger` request+response, redaction, error, 2 000-char truncation |
-| `utilities_test.dart` | 19 | `FormData.fromMap` (all value types), `CancelToken` listener removal, `buildUri` edge cases, `CachedTokenStorage.clearCache`, `AuthInterceptor` edge cases (empty token, custom scheme, bare token) |
-| `spec_test.dart` | 10 | `ApiSpec` recording + path patterns, `SpecMockAdapter` end-to-end + 422 + status overrides, OpenAPI / Markdown / BackendGuide generators, `Schema.validate` |
-| `graphql_test.dart` | 7 | `GraphQLClient` query, mutation, variable validation, unknown operation, status override, Markdown + BackendGuide GraphQL sections |
-
+| File | Coverage |
+|---|---|
+| `flutter_api_client_test.dart` | Client instantiation, `ApiResult` convenience access, token storage, request options, cancel tokens, query building |
+| `api_result_test.dart` | `ApiResult` mapping/accessors, successful parse failures, empty-body success semantics, `ApiException` subtypes |
+| `mock_adapter_test.dart` | Mock routing/capture, retry, dedup, cache, auth refresh queue, cancellation |
+| `retry_error_test.dart` | `RetryInterceptor.onError` behavior for network, timeout, exhaustion, and non-retryable HTTP errors |
+| `cache_interceptor_test.dart` | `networkFirst`, `cacheOnly`, `staleWhileRevalidate`, ETag / 304, in-memory LRU behavior |
+| `offline_queue_test.dart` | Queue store operations and offline enqueue rules |
+| `logger_test.dart` | cURL / pretty logging, redaction, truncation, and error logging |
+| `utilities_test.dart` | `FormData`, `CancelToken`, `buildUri`, `CachedTokenStorage`, auth edge cases |
+| `spec_test.dart` | `ApiSpec`, `SpecMockAdapter`, generators, and schema validation |
+| `graphql_test.dart` | GraphQL client flows, validation, status overrides, and generator output |
+| `gen_cli_test.dart` | CLI generator selection and generated spec discovery |
+| `test_generator_test.dart` | Generated test scaffold output |
 Run with coverage:
 
 ```bash
