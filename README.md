@@ -706,8 +706,10 @@ Captures mutating requests that fail with `NetworkError` or `TimeoutError`
 while the device is offline and stores them for later replay.
 
 ```dart
+final box = await Hive.openBox<String>('offline_queue');
+
 OfflineQueueInterceptor(
-  store:    InMemoryOfflineQueueStore(), // replace with persistent store
+  store:    HiveOfflineQueueStore(box),
   isOnline: () async => (await Connectivity().checkConnectivity())
                         != ConnectivityResult.none,
   methods:  {'POST', 'PUT', 'PATCH', 'DELETE'}, // default
@@ -717,7 +719,8 @@ OfflineQueueInterceptor(
 **Replaying the queue** when connectivity returns:
 
 ```dart
-final store = InMemoryOfflineQueueStore();
+final box = await Hive.openBox<String>('offline_queue');
+final store = HiveOfflineQueueStore(box);
 // ...when online:
 final pending = await store.drain();
 for (final req in pending) {
@@ -755,8 +758,9 @@ for (final req in pending) {
 - `HttpError` (4xx/5xx — server-side, not a connectivity issue)
 - Requests when `isOnline()` returns `true`
 
-For production, implement `OfflineQueueStore` on top of SQLite or Hive so
-the queue survives app restarts.
+`HiveOfflineQueueStore` is the built-in persistent option. It stores each
+queued request as a JSON string in a user-supplied `Hive` box. Queue bodies
+must remain JSON-serialisable to persist cleanly.
 
 ---
 
@@ -1265,7 +1269,8 @@ class MyAdapter implements HttpAdapter {
 | `OfflineQueueInterceptor` | Captures offline writes for later replay |
 | `OfflineQueueStore` | Abstract queue backend interface |
 | `InMemoryOfflineQueueStore` | Volatile in-memory queue |
-| `QueuedRequest` | Serialisable pending request (with `toJson()`) |
+| `HiveOfflineQueueStore` | Persistent Hive-backed queue store |
+| `QueuedRequest` | Serialisable pending request (with `toJson()` / `fromJson()`) |
 | `CurlLogger` | Logs requests as `curl` commands |
 | `PrettyLogger` | Structured colour request/response logger |
 
