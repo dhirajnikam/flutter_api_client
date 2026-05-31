@@ -154,7 +154,7 @@ dart test --concurrency=8
 - **ETag validation**: Automatic `If-None-Match` for bandwidth optimization
 - **Request deduplication**: Collapse identical in-flight requests
 - **Offline queue**: Persist failed writes for replay when online
-- **Cancel tokens**: Abort multiple related requests simultaneously
+- **Cancel tokens**: Cancel multiple related requests simultaneously
 
 ### Developer Experience
 - **Logging interceptors**: cURL commands and pretty-printed request/response logs
@@ -775,8 +775,11 @@ PrettyLogger(
 
 ## Cancel tokens
 
-A single `CancelToken` can be bound to multiple requests. `cancel()` aborts
-every associated request without disturbing unrelated ones.
+A single `CancelToken` can be bound to multiple requests. `cancel()` causes
+every associated request to complete with `CancelError` without disturbing
+unrelated ones. With the default `DefaultHttpAdapter`, request-owned
+`package:http` clients are also closed on cancel; shared injected clients are
+not.
 
 ```dart
 final token = CancelToken();
@@ -787,7 +790,7 @@ final [feed, comments] = await Future.wait([
   client.get('comments', options: RequestOptions(cancelToken: token)),
 ]);
 
-// Abort both when the user navigates away
+// Cancel both when the user navigates away
 token.cancel('screen closed');
 
 // State inspection
@@ -1187,7 +1190,7 @@ class MyAdapter implements HttpAdapter {
 | `HttpError` | Non-2xx HTTP status (carries `statusCode`, `body`, `headers`) |
 | `ParseError` | Response body decode failure |
 | `UnknownError` | Catch-all |
-| `CancelToken` | Abort one or more in-flight requests |
+| `CancelToken` | Cancel one or more in-flight requests |
 | `RequestOptions` | Per-request config overrides |
 | `ResponseType` | `json` / `bytes` / `plainText` / `stream` |
 | `FormData` | Multipart form data builder |
