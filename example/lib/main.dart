@@ -478,8 +478,7 @@ class _DogTabState extends State<_DogTab> {
                   _imageUrl!,
                   height: 200,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) =>
-                      const Text('(image load failed)'),
+                  errorBuilder: (_, _, _) => const Text('(image load failed)'),
                 ),
               ),
             )
@@ -633,7 +632,10 @@ class _TabLayout extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           ...buttons,
-          if (extra != null) extra!,
+          ...switch (extra) {
+            final widget? => <Widget>[widget],
+            null => const <Widget>[],
+          },
           if (loading)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 8),

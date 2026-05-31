@@ -1,6 +1,6 @@
 name: flutter_api_client
 description: "Type-safe HTTP client for Flutter/Dart with retries, cache, dedup, refresh-queue auth, cancel tokens, and a spec-driven mock + docs + backend-guide generator."
-version: 1.0.2
+version: 1.0.3
 homepage: https://github.com/dhirajnikam/flutter_api_client
 repository: https://github.com/dhirajnikam/flutter_api_client
 issue_tracker: https://github.com/dhirajnikam/flutter_api_client/issues
@@ -19,16 +19,15 @@ executables:
   gen: gen
 
 dependencies:
-  http: ^1.2.2
-  meta: ^1.12.0
-  collection: ^1.18.0
-  build: ^2.4.0
-  source_gen: ^1.5.0
-  args: ^2.5.0
+  http: ^1.6.0
+  collection: ^1.19.1
+  build: ^4.0.6
+  source_gen: ^4.2.3
+  args: ^2.7.0
   hive: ^2.2.3
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
-  build_runner: ^2.4.0
+  flutter_lints: ^6.0.0
+  build_runner: ^2.15.0

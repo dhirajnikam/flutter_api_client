@@ -247,6 +247,40 @@ void main() {
       expect(await store.length, 1);
     });
 
+    test('drops authorization header before persisting queued request',
+        () async {
+      final store = InMemoryOfflineQueueStore();
+      final mock = MockAdapter();
+      mock.onRequest('POST', RegExp(r'/secure-save$'), (_) async {
+        throw const NetworkError('offline');
+      });
+
+      final client = ApiClient(
+        ApiClientConfig(
+          baseUrl: 'https://api.example.com',
+          adapter: mock,
+          tokenStorage: MemoryTokenStorage(accessToken: 'jwt-123'),
+          interceptors: [
+            OfflineQueueInterceptor(
+              store: store,
+              isOnline: () async => false,
+            ),
+          ],
+        ),
+      );
+
+      await client.post<dynamic>(
+        'secure-save',
+        {'v': 1},
+        options: const RequestOptions(headers: {'x-tenant': 'tenant-a'}),
+      );
+
+      final queued = await store.drain();
+      expect(queued, hasLength(1));
+      expect(queued.first.headers.containsKey('Authorization'), false);
+      expect(queued.first.headers['x-tenant'], 'tenant-a');
+    });
+
     test('does not enqueue GET (non-mutating method)', () async {
       final store = InMemoryOfflineQueueStore();
       final mock = MockAdapter();

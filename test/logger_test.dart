@@ -62,6 +62,30 @@ void main() {
       expect(lines.first, contains('--data'));
       expect(lines.first, contains('Alice'));
     });
+
+    test('redacts sensitive JSON body keys', () async {
+      final lines = <String>[];
+      final mock = MockAdapter()
+        ..on('POST', RegExp(r'/login$'), statusCode: 200, body: {});
+
+      final client = ApiClient(
+        ApiClientConfig.test(
+          baseUrl: 'https://api.example.com',
+          adapter: mock,
+          interceptors: [CurlLogger(printer: lines.add)],
+        ),
+      );
+
+      await client.post<dynamic>('login', {
+        'email': 'a@b.com',
+        'password': 'secret123',
+        'accessToken': 'jwt-123',
+      });
+
+      expect(lines.first, contains('<redacted>'));
+      expect(lines.first, isNot(contains('secret123')));
+      expect(lines.first, isNot(contains('jwt-123')));
+    });
   });
 
   group('PrettyLogger', () {
@@ -148,6 +172,37 @@ void main() {
       await client.get<dynamic>('big');
       final responseLine = lines.last;
       expect(responseLine, contains('…'));
+    });
+
+    test('redacts sensitive response headers and token-like response keys',
+        () async {
+      final lines = <String>[];
+      final mock = MockAdapter();
+      mock.onRequest(
+        'GET',
+        RegExp(r'/session$'),
+        (_) async => AdapterResponse(
+          statusCode: 200,
+          headers: const {'set-cookie': 'sid=abc123; HttpOnly'},
+          bodyBytes: _b('{"accessToken":"jwt-123","profile":{"name":"A"}}'),
+        ),
+      );
+
+      final client = ApiClient(
+        ApiClientConfig.test(
+          baseUrl: 'https://api.example.com',
+          adapter: mock,
+          interceptors: [PrettyLogger(printer: lines.add, useColors: false)],
+        ),
+      );
+
+      await client.get<dynamic>('session');
+
+      final responseLog = lines.last;
+      expect(responseLog, contains('set-cookie: <redacted>'));
+      expect(responseLog, isNot(contains('sid=abc123')));
+      expect(responseLog, contains('"accessToken":"<redacted>"'));
+      expect(responseLog, isNot(contains('jwt-123')));
     });
   });
 }

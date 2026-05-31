@@ -36,15 +36,15 @@ class _ApiSpecTestBuilder implements Builder {
   @override
   Future<void> build(BuildStep buildStep) async {
     if (!await buildStep.resolver.isLibrary(buildStep.inputId)) return;
-    final lib = await buildStep.resolver.libraryFor(buildStep.inputId);
+    final library = await buildStep.resolver.libraryFor(buildStep.inputId);
+    final reader = LibraryReader(library);
     const checker = TypeChecker.fromUrl(
       'package:flutter_api_client/src/gen/api_spec_entry.dart#ApiSpecEntry',
     );
-    final annotated =
-        lib.topLevelElements.where((e) => checker.hasAnnotationOf(e)).toList();
+    final annotated = reader.annotatedWith(checker).toList();
     if (annotated.isEmpty) return;
 
-    final varName = annotated.first.name!;
+    final varName = annotated.first.element.name!;
     final importPath = packageImportFromLibPath(
       buildStep.inputId.package,
       buildStep.inputId.path,

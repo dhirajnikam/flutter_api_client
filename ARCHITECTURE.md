@@ -128,13 +128,13 @@ delay = min(baseDelay * 2^attempt + jitter, maxDelay)
 ```
 
 **Retry Conditions**:
-- Network errors
-- Timeout errors
-- Configurable HTTP status codes (default: 408, 429, 500-504)
+- Network errors on methods in `safeMethods`
+- Timeout errors on methods in `safeMethods`
+- Configurable HTTP status codes (default: 408, 429, 500-504) on methods in `safeMethods`
 
 **Respect Retry-After**: Parses both delay-seconds and HTTP-date formats
 
-**Design Decision**: Only retries in `onError` hook. Successful responses are never retried.
+**Design Decision**: Retries are opt-in for safe methods by default. Mutating requests are not retried unless the caller explicitly broadens `safeMethods`.
 
 ### CacheInterceptor
 
@@ -146,7 +146,7 @@ delay = min(baseDelay * 2^attempt + jitter, maxDelay)
 |----------|----------|
 | `networkFirst` | Always hit network; cache is fallback |
 | `cacheFirst` | Serve from cache if fresh; network on miss |
-| `staleWhileRevalidate` | Return stale immediately, revalidate async |
+| `staleWhileRevalidate` | Serve fresh cache immediately; once stale, revalidate with the network before returning the refreshed response |
 | `cacheOnly` | Never hit network; 504 on miss |
 
 **ETag Flow**:

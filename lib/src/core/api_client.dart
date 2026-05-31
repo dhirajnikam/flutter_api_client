@@ -6,6 +6,7 @@ import '../http/default_http_adapter.dart';
 import '../http/http_adapter.dart';
 import '../interceptors/interceptor.dart';
 import '../interceptors/interceptor_chain.dart';
+import '../interceptors/request_identity.dart';
 import '../response/response_handler.dart';
 import '../response/response_handler_interface.dart';
 import 'api_exception.dart';
@@ -345,7 +346,7 @@ class ApiClient implements ApiClientInterface {
       AdapterRequest(
         method: req.method,
         url: url,
-        headers: req.headers,
+        headers: stripInternalRequestHeaders(req.headers),
         body: payload.body,
         formData: payload.formData,
         isMultipart: req.isMultipart,

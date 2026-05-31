@@ -66,7 +66,7 @@ expect(res3.statusCode, 422);
 After `dart run build_runner build`, you get `lib/my_api.test.g.dart` — a minimal smoke test that confirms your spec loads and all endpoints are registered.
 
 ```bash
-dart test lib/my_api.test.g.dart
+flutter test lib/my_api.test.g.dart
 ```
 
 ---
@@ -86,13 +86,13 @@ Covers happy path, schema validation failures, auth checks, and error responses 
 
 ```bash
 # All tests, 8 workers in parallel
-dart test --concurrency=8
+flutter test --concurrency=8
 
 # Single file
-dart test test/api_spec_test.dart
+flutter test test/api_spec_test.dart
 
 # Filter by name
-dart test --name "happy path"
+flutter test --plain-name "happy path"
 ```
 
 ---

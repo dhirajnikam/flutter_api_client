@@ -41,12 +41,18 @@ class RetryPolicy {
         safeMethods: safeMethods ?? const {'GET', 'HEAD', 'OPTIONS'},
       );
 
-  bool shouldRetryResponse(AdapterResponse res, int attempt) {
+  bool shouldRetryResponse(
+    AdapterResponse res,
+    int attempt, {
+    String method = 'GET',
+  }) {
     if (attempt >= maxAttempts) return false;
+    if (!safeMethods.contains(method.toUpperCase())) return false;
     return retryOnStatus.contains(res.statusCode);
   }
 
-  bool shouldRetryError(ApiException err, int attempt, {String method = 'GET'}) {
+  bool shouldRetryError(ApiException err, int attempt,
+      {String method = 'GET'}) {
     if (attempt >= maxAttempts) return false;
     if (!safeMethods.contains(method.toUpperCase())) return false;
     return retryOnException(err);

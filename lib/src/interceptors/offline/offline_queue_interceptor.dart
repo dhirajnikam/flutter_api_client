@@ -1,5 +1,6 @@
 import '../../core/api_exception.dart';
 import '../interceptor.dart';
+import '../request_identity.dart';
 import 'offline_queue.dart';
 
 /// Detects network errors on mutating requests and stores them for replay.
@@ -30,11 +31,17 @@ class OfflineQueueInterceptor extends Interceptor {
         id: '${DateTime.now().microsecondsSinceEpoch}-${req.endpoint.hashCode}',
         method: req.method,
         endpoint: req.endpoint,
-        headers: Map.of(req.headers),
+        headers: _queuedHeaders(req.headers),
         body: req.data,
         createdAt: DateTime.now(),
       ),
     );
     return RejectResult(error);
+  }
+
+  Map<String, String> _queuedHeaders(Map<String, String> headers) {
+    final queued = stripInternalRequestHeaders(headers);
+    queued.removeWhere((name, _) => name.toLowerCase() == 'authorization');
+    return queued;
   }
 }

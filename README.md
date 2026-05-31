@@ -49,10 +49,10 @@ a Markdown API reference, and a backend implementation guide.
 
 ```yaml
 dependencies:
-  flutter_api_client: ^1.0.2
+  flutter_api_client: ^1.0.3
 
 dev_dependencies:
-  build_runner: ^2.4.0
+  build_runner: ^2.15.0
 ```
 
 **2. Define your spec and generate files**
@@ -88,7 +88,7 @@ dart run flutter_api_client:gen
 dart run flutter_api_client:gen --only tests
 # Writes: test/api_spec_test.dart  (complete runnable tests for every endpoint)
 
-dart test --concurrency=8
+flutter test --concurrency=8
 ```
 
 ---
@@ -200,16 +200,21 @@ dart test --concurrency=8
 ```yaml
 # pubspec.yaml
 dependencies:
-  flutter_api_client: ^1.0.2
+  flutter_api_client: ^1.0.3
 ```
 
 ```bash
 flutter pub get
 ```
 
-**Runtime dependencies:** [`http`](https://pub.dev/packages/http) ^1.2.2,
-[`meta`](https://pub.dev/packages/meta) ^1.12.0,
-[`collection`](https://pub.dev/packages/collection) ^1.18.0.
+**Runtime dependencies:** [`http`](https://pub.dev/packages/http) ^1.6.0,
+[`collection`](https://pub.dev/packages/collection) ^1.19.1,
+[`hive`](https://pub.dev/packages/hive) ^2.2.3.
+
+**Permissions:** this package does not add Android, iOS, macOS, or web
+permissions of its own. Outbound networking policy (for example Android
+internet access or iOS/macOS App Transport Security exceptions) remains an
+application-level concern.
 
 ---
 
@@ -573,8 +578,8 @@ Future<InterceptorResult> onError(InterceptedRequest, ApiException)       → sa
 
 ### `RetryInterceptor`
 
-Retries on configurable status codes and exception types with exponential
-backoff, optional jitter, and `Retry-After` header support.
+Retries retryable transport failures and retryable status responses with
+exponential backoff, optional jitter, and `Retry-After` header support.
 
 ```dart
 RetryInterceptor(
@@ -583,6 +588,7 @@ RetryInterceptor(
     baseDelay:       Duration(milliseconds: 200),
     maxDelay:        Duration(seconds: 30),
     retryOnStatus:   {408, 429, 500, 502, 503, 504},
+    safeMethods:     {'GET', 'HEAD', 'OPTIONS'},
     useJitter:       true,   // randomises delay ±30%
     respectRetryAfter: true, // honours Retry-After response header
   ),
@@ -593,10 +599,11 @@ RetryInterceptor(policy: RetryPolicy.exponential(maxAttempts: 4))
 ```
 
 **Triggers a retry:**
-- Status codes in `retryOnStatus` (default: 408, 429, 500–504)
-- `NetworkError` or `TimeoutError` (configurable via `retryOnException`)
+- Status codes in `retryOnStatus` on methods in `safeMethods`
+- `NetworkError` or `TimeoutError` on methods in `safeMethods`
 
 **Does not trigger a retry:**
+- Non-safe methods unless you explicitly include them in `safeMethods`
 - 4xx errors other than 408 / 429
 - `HttpError` with any other code
 - `CancelError`
@@ -622,7 +629,7 @@ LRU cache (default 256 entries). For on-disk persistence implement the
 |---|---|
 | `cacheFirst` | Serve from cache if fresh. Fall back to network; update cache. |
 | `networkFirst` | Always hit network first; update cache on 2xx. Return stale cache only if network fails. |
-| `staleWhileRevalidate` | If a cached entry exists and TTL is still valid, return it immediately. On TTL expiry, return the stale entry and revalidate in the background. |
+| `staleWhileRevalidate` | If a cached entry exists and TTL is still valid, return it immediately. Once the TTL has expired, the interceptor performs a conditional network revalidation before serving the new response. |
 | `cacheOnly` | Only serve from cache. Returns status 504 on a cache miss. |
 
 ```dart
@@ -753,6 +760,10 @@ for (final req in pending) {
 }
 ```
 
+Queued requests retain ordinary request headers, but the interceptor drops the
+`Authorization` header before persisting so replay uses the current token
+instead of a stale one.
+
 **Never enqueued:**
 - GET / HEAD (idempotent reads)
 - `HttpError` (4xx/5xx — server-side, not a connectivity issue)
@@ -766,8 +777,8 @@ must remain JSON-serialisable to persist cleanly.
 
 ### `CurlLogger`
 
-Logs every request as a ready-to-paste `curl` command. Sensitive headers
-are redacted by default.
+Logs every request as a ready-to-paste `curl` command. Sensitive headers and
+common credential keys in JSON request bodies are redacted by default.
 
 ```dart
 CurlLogger(
@@ -781,7 +792,7 @@ CurlLogger(
 ```
 curl -X POST -H 'Content-Type: application/json' \
   -H 'Authorization: <redacted>' \
-  --data '{"email":"a@b.com","password":"secret123"}' \
+  --data '{"email":"a@b.com","password":"<redacted>"}' \
   'https://api.example.com/api/v1/auth/login'
 ```
 
@@ -789,8 +800,9 @@ curl -X POST -H 'Content-Type: application/json' \
 
 ### `PrettyLogger`
 
-Structured, colour-coded request/response logger. Response bodies are
-capped at 2 000 characters (truncated with `…`).
+Structured, colour-coded request/response logger. Sensitive response headers
+are redacted, and response bodies are capped at 2 000 characters (truncated
+with `…`).
 
 ```dart
 PrettyLogger(
@@ -808,11 +820,12 @@ PrettyLogger(
 ┌─── POST auth/login ───
 │ Content-Type: application/json
 │ Authorization: <redacted>
-│ body: {"email":"a@b.com","password":"secret123"}
+│ body: {"email":"a@b.com","password":"<redacted>"}
 └───────────────
 ┌─── 200 POST auth/login ───
 │ content-type: application/json
-│ body: {"token":"jwt","user":{"id":1}}
+│ set-cookie: <redacted>
+│ body: {"token":"<redacted>","user":{"id":1}}
 └───────────────
 ```
 
@@ -1315,10 +1328,12 @@ class MyAdapter implements HttpAdapter {
 
 ## Test suite
 
-**138 tests — all passing** (verified with `flutter test`):
+**167 root-package tests + 4 example tests — all passing** (verified with
+`flutter test` at the repo root and in `example/`):
 
 ```text
 $ flutter test
+$ (cd example && flutter test)
 All tests passed.
 ```
 

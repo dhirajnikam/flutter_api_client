@@ -9,8 +9,28 @@ import '../interceptor.dart';
 class PrettyLogger extends Interceptor {
   PrettyLogger({
     this.printer = print,
-    this.redactHeaders = const {'authorization', 'cookie', 'set-cookie'},
-    this.redactBodyKeys = const {'password', 'secret', 'token', 'credit_card'},
+    this.redactHeaders = const {
+      'authorization',
+      'cookie',
+      'set-cookie',
+      'proxy-authorization',
+      'x-api-key',
+      'x-auth-token',
+    },
+    this.redactBodyKeys = const {
+      'password',
+      'passwd',
+      'pwd',
+      'secret',
+      'token',
+      'access_token',
+      'refresh_token',
+      'api_key',
+      'apikey',
+      'client_secret',
+      'credit_card',
+      'card_number',
+    },
     this.requestBody = true,
     this.responseBody = true,
     this.useColors = true,
@@ -29,6 +49,10 @@ class PrettyLogger extends Interceptor {
   static const _red = '\u001B[31m';
   static const _grey = '\u001B[90m';
 
+  late final Set<String> _normalizedRedactBodyKeys = {
+    for (final key in redactBodyKeys) _normalizeKey(key),
+  };
+
   String _c(String code, String s) => useColors ? '$code$s$_reset' : s;
 
   @override
@@ -36,14 +60,12 @@ class PrettyLogger extends Interceptor {
     final buf = StringBuffer();
     buf.writeln(_c(_cyan, '┌─── ${req.method} ${req.endpoint} ───'));
     req.headers.forEach((k, v) {
-      final value = redactHeaders.contains(k.toLowerCase()) ? '<redacted>' : v;
-      buf.writeln(_c(_grey, '│ $k: $value'));
+      buf.writeln(_c(_grey, '│ $k: ${_redactHeaderValue(k, v)}'));
     });
     if (requestBody && req.data != null && !req.isMultipart) {
-      final body = req.data is String ? req.data : jsonEncode(req.data);
-      buf.writeln(
-        _c(_grey, '│ body: ${_redactJsonBody(body, redactBodyKeys)}'),
-      );
+      final body =
+          req.data is String ? req.data as String : jsonEncode(req.data);
+      buf.writeln(_c(_grey, '│ body: ${_redactJsonBody(body)}'));
     }
     buf.writeln(_c(_cyan, '└───────────────'));
     printer(buf.toString());
@@ -61,7 +83,7 @@ class PrettyLogger extends Interceptor {
       _c(color, '┌─── ${res.statusCode} ${req.method} ${req.endpoint} ───'),
     );
     res.headers.forEach((k, v) {
-      buf.writeln(_c(_grey, '│ $k: $v'));
+      buf.writeln(_c(_grey, '│ $k: ${_redactHeaderValue(k, v)}'));
     });
     if (responseBody) {
       try {
@@ -69,9 +91,7 @@ class PrettyLogger extends Interceptor {
         if (body.isNotEmpty) {
           final preview =
               body.length > 2000 ? '${body.substring(0, 2000)}…' : body;
-          buf.writeln(
-            _c(_grey, '│ body: ${_redactJsonBody(preview, redactBodyKeys)}'),
-          );
+          buf.writeln(_c(_grey, '│ body: ${_redactJsonBody(preview)}'));
         }
       } catch (_) {}
     }
@@ -80,33 +100,51 @@ class PrettyLogger extends Interceptor {
     return ResolveResult(res);
   }
 
-  /// Redacts values for keys in [redactKeys] from a JSON body string.
+  String _redactHeaderValue(String name, String value) =>
+      redactHeaders.contains(name.toLowerCase()) ? '<redacted>' : value;
+
+  /// Redacts values for keys in [redactBodyKeys] from a JSON body string.
   /// Returns the original [body] if it isn't valid JSON.
-  String _redactJsonBody(String body, Set<String> redactKeys) {
-    if (redactKeys.isEmpty) return body;
+  String _redactJsonBody(String body) {
+    if (_normalizedRedactBodyKeys.isEmpty) return body;
     try {
       final decoded = jsonDecode(body);
-      final redacted = _redactValue(decoded, redactKeys);
+      final redacted = _redactValue(decoded);
       return jsonEncode(redacted);
     } catch (_) {
       return body;
     }
   }
 
-  dynamic _redactValue(dynamic value, Set<String> keys) {
+  dynamic _redactValue(dynamic value) {
     if (value is Map) {
       final result = <String, dynamic>{};
       for (final entry in value.entries) {
-        final k = entry.key.toString();
-        result[k] = keys.contains(k.toLowerCase())
+        final key = entry.key.toString();
+        result[key] = _normalizedRedactBodyKeys.contains(_normalizeKey(key))
             ? '<redacted>'
-            : _redactValue(entry.value, keys);
+            : _redactValue(entry.value);
       }
       return result;
-    } else if (value is List) {
-      return value.map((e) => _redactValue(e, keys)).toList();
+    }
+    if (value is List) {
+      return value.map(_redactValue).toList(growable: false);
     }
     return value;
+  }
+
+  String _normalizeKey(String key) {
+    final buffer = StringBuffer();
+    for (final code in key.codeUnits) {
+      if (code >= 48 && code <= 57) {
+        buffer.writeCharCode(code);
+      } else if (code >= 65 && code <= 90) {
+        buffer.writeCharCode(code + 32);
+      } else if (code >= 97 && code <= 122) {
+        buffer.writeCharCode(code);
+      }
+    }
+    return buffer.toString();
   }
 
   @override

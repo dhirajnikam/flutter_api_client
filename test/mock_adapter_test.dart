@@ -81,6 +81,52 @@ void main() {
       final res = await client.get<dynamic>('flaky');
       expect(res.isSuccess, true);
       expect(hits, 3);
+      for (final request in mock.received) {
+        expect(
+          request.headers.keys
+              .where((key) => key.toLowerCase().startsWith('x-fac-')),
+          isEmpty,
+        );
+      }
+    });
+
+    test('does not retry non-safe methods on 503 by default', () async {
+      var hits = 0;
+      final mock = MockAdapter();
+      mock.onRequest('POST', RegExp(r'/submit$'), (_) async {
+        hits++;
+        if (hits == 1) {
+          return AdapterResponse(
+            statusCode: 503,
+            headers: const {},
+            bodyBytes: _b('busy'),
+          );
+        }
+        return AdapterResponse(
+          statusCode: 200,
+          headers: const {},
+          bodyBytes: _b('{"ok":true}'),
+        );
+      });
+      final client = ApiClient(
+        ApiClientConfig.test(
+          baseUrl: 'https://api.example.com',
+          adapter: mock,
+          interceptors: [
+            RetryInterceptor(
+              policy: RetryPolicy(
+                maxAttempts: 4,
+                baseDelay: const Duration(milliseconds: 1),
+                useJitter: false,
+              ),
+            ),
+          ],
+        ),
+      );
+      final res = await client.post<dynamic>('submit', {'id': 1});
+      expect(res.isSuccess, false);
+      expect(res.statusCode, 503);
+      expect(hits, 1);
     });
 
     test('gives up after maxAttempts', () async {
@@ -266,6 +312,13 @@ void main() {
       expect(refreshCalls, 1);
       for (final r in results) {
         expect(r.isSuccess, true);
+      }
+      for (final request in mock.received) {
+        expect(
+          request.headers.keys
+              .where((key) => key.toLowerCase().startsWith('x-fac-')),
+          isEmpty,
+        );
       }
     });
   });

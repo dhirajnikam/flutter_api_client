@@ -62,10 +62,10 @@
 /// );
 /// ```
 ///
-/// ## Version 1.0.2
-/// - Classified malformed successful JSON/text payloads as `ParseError`
-/// - Clarified empty successful JSON-body handling
-/// - Aligned README and architecture docs with the shipped `ApiResult<T>` API
+/// ## Version 1.0.3
+/// - Stripped internal `x-fac-*` control headers before transport dispatch
+/// - Restricted automatic status-code retries to `safeMethods` by default
+/// - Hardened offline-queue and logger secret handling
 library;
 
 // Core

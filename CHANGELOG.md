@@ -1,3 +1,37 @@
+## 1.0.3
+
+**Release Date**: 2026-05-31  
+**Type**: Patch Release (Security hardening + Dependency refresh)  
+**Breaking Changes**: None
+
+This release hardens request handling and logging, refreshes direct dependencies to current compatible versions, and aligns the package documentation with the shipped runtime behavior. Fully backward compatible with 1.0.2.
+
+### Fixed
+* **Internal Header Leakage**: Client-only `x-fac-*` control headers are now stripped before requests reach the transport layer
+* **Retry Safety**: Response-based retries now respect `safeMethods`, preventing automatic retries of mutating methods unless explicitly configured
+* **Offline Queue Credentials**: `OfflineQueueInterceptor` no longer persists `Authorization` headers, preventing stale-token replay from on-disk queues
+* **Logger Redaction**: cURL and pretty loggers now redact sensitive JSON body keys and sensitive response headers more consistently
+* **Builder Compatibility**: Updated generated-spec builder logic for current `source_gen` / analyzer APIs
+
+### Documentation
+* **README.md**: Added explicit permission guidance, corrected retry/cache/offline-queue semantics, refreshed logger examples, and updated test commands
+* **TESTING.md**: Switched package test instructions to `flutter test` and aligned filters/examples with the current workflow
+* **ARCHITECTURE.md**: Updated retry and cache behavior descriptions to match the runtime implementation
+* **Library Dartdoc**: Refreshed release notes in `lib/flutter_api_client.dart`
+
+### Quality Improvements
+* **Dependency Freshness**: Bumped direct runtime/tooling constraints to current compatible versions and removed the unused direct `meta` dependency
+* **Regression Coverage**: Added tests for internal header stripping, non-safe retry behavior, offline queue auth stripping, and logger redaction of sensitive payloads
+* **Verification**: `dart analyze`, `flutter test`, `flutter test` in `example/`, `dart pub outdated --json --up-to-date --no-dev-dependencies --no-dependency-overrides`, and `dart pub downgrade --no-example && dart analyze`
+
+### Upgrade Guide
+```yaml
+dependencies:
+  flutter_api_client: ^1.0.3
+```
+
+No code changes required for existing callers.
+
 ## 1.0.2
 
 **Release Date**: 2026-05-31  
