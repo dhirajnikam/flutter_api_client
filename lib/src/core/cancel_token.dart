@@ -2,11 +2,15 @@ import 'dart:async';
 
 import 'api_exception.dart';
 
-/// Cancels one or more in-flight requests.
+/// Cancels one or more in-flight requests from the package API perspective.
 ///
-/// A single token can be passed to many requests. Calling [cancel] aborts
-/// every request associated with this token without disturbing unrelated
-/// requests.
+/// A single token can be passed to many requests. Calling [cancel] causes
+/// those requests to complete with [CancelError] without disturbing unrelated
+/// ones.
+///
+/// Transport-level interruption depends on the active adapter. The default
+/// [DefaultHttpAdapter] attempts to interrupt owned per-request `package:http`
+/// clients, but shared injected clients are not closed by one request cancel.
 class CancelToken {
   CancelToken();
 

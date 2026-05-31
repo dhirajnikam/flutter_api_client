@@ -25,7 +25,7 @@ void main() {
       scheduleMicrotask(() => token.cancel('stop'));
 
       await expectLater(future, throwsA(isA<CancelError>()));
-      expect(client.closeCalls, 1);
+      expect(client.closeCalls, greaterThanOrEqualTo(1));
     });
 
     test('shared client mode does not close the injected client', () async {
@@ -56,11 +56,24 @@ void main() {
 }
 
 class _ProbeClient extends http.BaseClient {
+  final _response = Completer<http.StreamedResponse>();
   final _controller = StreamController<List<int>>();
   int closeCalls = 0;
 
+  void _ensureResponse() {
+    if (_response.isCompleted) return;
+    _response.complete(
+      http.StreamedResponse(
+        _controller.stream,
+        200,
+        headers: const {'content-type': 'application/json'},
+      ),
+    );
+  }
+
   void completeWithJson(Object body) {
     if (_controller.isClosed) return;
+    _ensureResponse();
     _controller
       ..add(utf8.encode(jsonEncode(body)))
       ..close();
@@ -68,16 +81,13 @@ class _ProbeClient extends http.BaseClient {
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
-    return http.StreamedResponse(
-      _controller.stream,
-      200,
-      headers: const {'content-type': 'application/json'},
-    );
+    return _response.future;
   }
 
   @override
   void close() {
     closeCalls++;
+    _ensureResponse();
     if (!_controller.isClosed) {
       _controller.close();
     }

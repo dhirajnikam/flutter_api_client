@@ -9,9 +9,11 @@ import 'http_adapter.dart';
 
 /// Default adapter built on `package:http`.
 ///
-/// By default each request gets a private [http.Client] so cancellation never
-/// affects other in-flight requests. Pass a shared [client] to enable HTTP
-/// connection reuse (keep-alive) across requests.
+/// By default each request gets a private [http.Client], so cancelling a
+/// request can close that owned client without affecting unrelated requests.
+/// If you inject a shared [client], cancellation still surfaces as
+/// [CancelError] to the caller, but this adapter will not close the shared
+/// client on behalf of one request.
 class DefaultHttpAdapter implements HttpAdapter {
   DefaultHttpAdapter({http.Client Function()? clientFactory, http.Client? client})
       : _clientFactory = clientFactory ?? (() => http.Client()),
@@ -56,8 +58,10 @@ class DefaultHttpAdapter implements HttpAdapter {
       }
 
       _reportSendProgress(httpRequest, request.onSendProgress);
+      request.cancelToken?.throwIfCancelled();
 
       final streamed = await client.send(httpRequest).timeout(request.timeout);
+      request.cancelToken?.throwIfCancelled();
 
       final total = streamed.contentLength;
       var received = 0;
@@ -70,6 +74,7 @@ class DefaultHttpAdapter implements HttpAdapter {
         received += chunk.length;
         request.onReceiveProgress?.call(received, total);
       }
+      request.cancelToken?.throwIfCancelled();
       final bytes = Uint8List.fromList(
         chunks.expand((c) => c).toList(growable: false),
       );
