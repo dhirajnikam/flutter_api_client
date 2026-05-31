@@ -33,7 +33,7 @@ class RetryInterceptor extends Interceptor {
   ) async {
     final policy = _policyFor(req);
     final attempt = _attempt(req);
-    if (policy.shouldRetryError(error, attempt)) {
+    if (policy.shouldRetryError(error, attempt, method: req.method)) {
       await Future.delayed(policy.delayFor(attempt, null));
       final next = req.copy();
       next.headers[_attemptHeader] = '${attempt + 1}';

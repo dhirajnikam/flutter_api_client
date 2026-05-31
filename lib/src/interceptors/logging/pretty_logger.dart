@@ -10,6 +10,7 @@ class PrettyLogger extends Interceptor {
   PrettyLogger({
     this.printer = print,
     this.redactHeaders = const {'authorization', 'cookie', 'set-cookie'},
+    this.redactBodyKeys = const {'password', 'secret', 'token', 'credit_card'},
     this.requestBody = true,
     this.responseBody = true,
     this.useColors = true,
@@ -17,6 +18,7 @@ class PrettyLogger extends Interceptor {
 
   final void Function(String) printer;
   final Set<String> redactHeaders;
+  final Set<String> redactBodyKeys;
   final bool requestBody;
   final bool responseBody;
   final bool useColors;
@@ -39,7 +41,9 @@ class PrettyLogger extends Interceptor {
     });
     if (requestBody && req.data != null && !req.isMultipart) {
       final body = req.data is String ? req.data : jsonEncode(req.data);
-      buf.writeln(_c(_grey, '│ body: $body'));
+      buf.writeln(
+        _c(_grey, '│ body: ${_redactJsonBody(body, redactBodyKeys)}'),
+      );
     }
     buf.writeln(_c(_cyan, '└───────────────'));
     printer(buf.toString());
@@ -65,13 +69,44 @@ class PrettyLogger extends Interceptor {
         if (body.isNotEmpty) {
           final preview =
               body.length > 2000 ? '${body.substring(0, 2000)}…' : body;
-          buf.writeln(_c(_grey, '│ body: $preview'));
+          buf.writeln(
+            _c(_grey, '│ body: ${_redactJsonBody(preview, redactBodyKeys)}'),
+          );
         }
       } catch (_) {}
     }
     buf.writeln(_c(color, '└───────────────'));
     printer(buf.toString());
     return ResolveResult(res);
+  }
+
+  /// Redacts values for keys in [redactKeys] from a JSON body string.
+  /// Returns the original [body] if it isn't valid JSON.
+  String _redactJsonBody(String body, Set<String> redactKeys) {
+    if (redactKeys.isEmpty) return body;
+    try {
+      final decoded = jsonDecode(body);
+      final redacted = _redactValue(decoded, redactKeys);
+      return jsonEncode(redacted);
+    } catch (_) {
+      return body;
+    }
+  }
+
+  dynamic _redactValue(dynamic value, Set<String> keys) {
+    if (value is Map) {
+      final result = <String, dynamic>{};
+      for (final entry in value.entries) {
+        final k = entry.key.toString();
+        result[k] = keys.contains(k.toLowerCase())
+            ? '<redacted>'
+            : _redactValue(entry.value, keys);
+      }
+      return result;
+    } else if (value is List) {
+      return value.map((e) => _redactValue(e, keys)).toList();
+    }
+    return value;
   }
 
   @override
