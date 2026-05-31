@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter_api_client/flutter_api_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -99,6 +102,83 @@ void main() {
         decoder: (json) => (json as Map)['name'] as String,
       );
       expect(result.dataOrNull, 'Bob');
+    });
+
+    test('returns Failure with ParseError on malformed JSON success body', () async {
+      final mock = MockAdapter()
+        ..onRequest('GET', RegExp(r'/broken-json$'), (_) async => AdapterResponse(
+              statusCode: 200,
+              headers: const {'content-type': 'application/json'},
+              bodyBytes: Uint8List.fromList(utf8.encode('{bad json')),
+            ));
+      final client = ApiClient(
+        ApiClientConfig.test(baseUrl: 'https://example.com', adapter: mock),
+      );
+
+      final result = await client.get<dynamic>('broken-json');
+
+      expect(result.isFailure, true);
+      final error = (result as Failure<dynamic>).error;
+      expect(error, isA<ParseError>());
+      expect(error.message, contains('Failed to parse JSON response'));
+    });
+
+    test('returns Failure with ParseError on text body for JSON response', () async {
+      final mock = MockAdapter()
+        ..onRequest('GET', RegExp(r'/html$'), (_) async => AdapterResponse(
+              statusCode: 200,
+              headers: const {'content-type': 'text/html'},
+              bodyBytes: Uint8List.fromList(
+                utf8.encode('<html><body>oops</body></html>'),
+              ),
+            ));
+      final client = ApiClient(
+        ApiClientConfig.test(baseUrl: 'https://example.com', adapter: mock),
+      );
+
+      final result = await client.get<dynamic>('html');
+
+      expect(result.isFailure, true);
+      final error = (result as Failure<dynamic>).error;
+      expect(error, isA<ParseError>());
+      expect(error.message, contains('Expected JSON response body'));
+    });
+
+    test('returns Success with null data on empty successful JSON body', () async {
+      final mock = MockAdapter()
+        ..onRequest('GET', RegExp(r'/no-content$'), (_) async => AdapterResponse(
+              statusCode: 204,
+              headers: const {},
+              bodyBytes: Uint8List(0),
+            ));
+      final client = ApiClient(
+        ApiClientConfig.test(baseUrl: 'https://example.com', adapter: mock),
+      );
+
+      final result = await client.get<dynamic>('no-content');
+
+      expect(result.isSuccess, true);
+      expect(result.data, isNull);
+      expect(result.statusCode, 204);
+    });
+
+    test('keeps non-2xx malformed payloads as HttpError', () async {
+      final mock = MockAdapter()
+        ..onRequest('GET', RegExp(r'/server-error$'), (_) async => AdapterResponse(
+              statusCode: 500,
+              headers: const {'content-type': 'application/json'},
+              bodyBytes: Uint8List.fromList(utf8.encode('{bad json')),
+            ));
+      final client = ApiClient(
+        ApiClientConfig.test(baseUrl: 'https://example.com', adapter: mock),
+      );
+
+      final result = await client.get<dynamic>('server-error');
+
+      expect(result.isFailure, true);
+      final error = (result as Failure<dynamic>).error;
+      expect(error, isA<HttpError>());
+      expect((error as HttpError).statusCode, 500);
     });
   });
 
