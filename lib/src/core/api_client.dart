@@ -195,8 +195,14 @@ class ApiClient implements ApiClientInterface {
         options: options,
       );
       final responseType = options?.responseType ?? ResponseType.json;
-      final parsed = _decode<T>(res, responseType, decoder);
-      if (res.statusCode >= 200 && res.statusCode < 300) {
+      final isSuccessStatus = res.statusCode >= 200 && res.statusCode < 300;
+      final parsed = _decode<T>(
+        res,
+        responseType,
+        decoder,
+        strictJson: isSuccessStatus,
+      );
+      if (isSuccessStatus) {
         return Success<T>(
           parsed as T,
           statusCode: res.statusCode,
@@ -363,8 +369,9 @@ class ApiClient implements ApiClientInterface {
   Object? _decode<T>(
     AdapterResponse res,
     ResponseType type,
-    T Function(Object json)? decoder,
-  ) {
+    T Function(Object json)? decoder, {
+    required bool strictJson,
+  }) {
     switch (type) {
       case ResponseType.bytes:
         return res.bodyBytes;
@@ -374,18 +381,58 @@ class ApiClient implements ApiClientInterface {
         return res.bodyBytes;
       case ResponseType.json:
         if (res.bodyBytes.isEmpty) return null;
+
+        String raw;
         try {
-          final raw = utf8.decode(res.bodyBytes);
-          if (raw.trim().isEmpty) return null;
-          if (_responseHandler.isHtmlOrTextResponse(raw)) return null;
-          final parsed = jsonDecode(raw);
-          if (decoder != null && parsed != null) {
-            return decoder(parsed as Object);
+          raw = utf8.decode(res.bodyBytes);
+        } catch (e, st) {
+          if (strictJson) {
+            throw ParseError(
+              'Failed to decode response body as UTF-8',
+              cause: e,
+              stackTrace: st,
+            );
           }
-          return parsed;
-        } catch (_) {
           return null;
         }
+
+        if (raw.trim().isEmpty) return null;
+        if (_responseHandler.isHtmlOrTextResponse(raw)) {
+          if (strictJson) {
+            throw const ParseError('Expected JSON response but received plain text or HTML');
+          }
+          return null;
+        }
+
+        Object? parsed;
+        try {
+          parsed = jsonDecode(raw);
+        } catch (e, st) {
+          if (strictJson) {
+            throw ParseError(
+              'Failed to decode JSON response',
+              cause: e,
+              stackTrace: st,
+            );
+          }
+          return null;
+        }
+
+        if (decoder != null && parsed != null) {
+          try {
+            return decoder(parsed);
+          } catch (e, st) {
+            if (strictJson) {
+              throw ParseError(
+                'Response decoder failed',
+                cause: e,
+                stackTrace: st,
+              );
+            }
+            return null;
+          }
+        }
+        return parsed;
     }
   }
 

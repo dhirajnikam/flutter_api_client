@@ -13,7 +13,6 @@ final _dummyClient = ApiClient(
       PrettyLogger(useColors: false),
       RetryInterceptor(
         policy: RetryPolicy.exponential(
-          maxAttempts: 3,
           baseDelay: const Duration(milliseconds: 300),
         ),
       ),
@@ -36,7 +35,7 @@ final _jsonPlaceholderClient = ApiClient(
       DedupInterceptor(),
       CacheInterceptor(
         store: MemoryCacheStore(),
-        defaultPolicy: CachePolicy.cacheFirst(ttl: const Duration(minutes: 5)),
+        defaultPolicy: CachePolicy.cacheFirst(),
       ),
     ],
   ),

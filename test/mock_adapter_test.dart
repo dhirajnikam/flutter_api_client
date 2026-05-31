@@ -145,6 +145,45 @@ void main() {
         expect(r.isSuccess, true);
       }
     });
+    test('does not coalesce requests with different authorization headers',
+        () async {
+      var hits = 0;
+      final mock = MockAdapter();
+      mock.onRequest('GET', RegExp(r'/me$'), (req) async {
+        hits++;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        return AdapterResponse(
+          statusCode: 200,
+          headers: const {},
+          bodyBytes: _b('{"auth":"${req.headers['Authorization']}"}'),
+        );
+      });
+      final client = ApiClient(
+        ApiClientConfig.test(
+          baseUrl: 'https://api.example.com',
+          adapter: mock,
+          interceptors: [DedupInterceptor()],
+        ),
+      );
+      final results = await Future.wait([
+        client.get<dynamic>(
+          'me',
+          options: const RequestOptions(
+            headers: {'Authorization': 'Bearer user-a'},
+          ),
+        ),
+        client.get<dynamic>(
+          'me',
+          options: const RequestOptions(
+            headers: {'Authorization': 'Bearer user-b'},
+          ),
+        ),
+      ]);
+
+      expect(hits, 2);
+      expect(results[0].dataOrNull, {'auth': 'Bearer user-a'});
+      expect(results[1].dataOrNull, {'auth': 'Bearer user-b'});
+    });
   });
 
   group('CacheInterceptor', () {

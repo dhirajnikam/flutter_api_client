@@ -36,6 +36,42 @@ void main() {
       // networkFirst always goes to network (2 hits)
       expect(hits, 2);
     });
+    test('falls back to cached entry on network failure', () async {
+      var hits = 0;
+      final mock = MockAdapter();
+      mock.onRequest('GET', RegExp(r'/offline$'), (_) async {
+        hits++;
+        if (hits == 1) {
+          return AdapterResponse(
+            statusCode: 200,
+            headers: const {},
+            bodyBytes: _b('{"n":1}'),
+          );
+        }
+        throw const NetworkError('offline');
+      });
+
+      final client = ApiClient(
+        ApiClientConfig.test(
+          baseUrl: 'https://api.example.com',
+          adapter: mock,
+          interceptors: [
+            CacheInterceptor(
+              store: MemoryCacheStore(),
+              defaultPolicy: CachePolicy.networkFirst(),
+            ),
+          ],
+        ),
+      );
+
+      final first = await client.get<dynamic>('offline');
+      final second = await client.get<dynamic>('offline');
+
+      expect(first.isSuccess, true);
+      expect(second.isSuccess, true);
+      expect(second.headers['x-fac-cache-hit'], 'hit');
+      expect(hits, 2);
+    });
   });
 
   group('CacheInterceptor — cacheOnly', () {
@@ -78,7 +114,7 @@ void main() {
             CacheInterceptor(
               store: store,
               defaultPolicy:
-                  CachePolicy.cacheFirst(ttl: const Duration(minutes: 5)),
+                  CachePolicy.cacheFirst(),
             ),
           ],
         ),
@@ -104,6 +140,66 @@ void main() {
       expect(res.isSuccess, true);
       expect(res.headers['x-fac-cache-hit'], 'hit');
       expect(hits, 1); // no second network call
+    });
+    test('does not reuse cached entry across different authorization headers',
+        () async {
+      var hits = 0;
+      final mock = MockAdapter();
+      mock.onRequest('GET', RegExp(r'/profile$'), (req) async {
+        hits++;
+        return AdapterResponse(
+          statusCode: 200,
+          headers: const {},
+          bodyBytes: _b('{"auth":"${req.headers['Authorization']}"}'),
+        );
+      });
+
+      final store = MemoryCacheStore();
+      final cacheFirstClient = ApiClient(
+        ApiClientConfig.test(
+          baseUrl: 'https://api.example.com',
+          adapter: mock,
+          interceptors: [
+            CacheInterceptor(
+              store: store,
+              defaultPolicy:
+                  CachePolicy.cacheFirst(),
+            ),
+          ],
+        ),
+      );
+
+      final first = await cacheFirstClient.get<Map<String, dynamic>>(
+        'profile',
+        options: const RequestOptions(
+          headers: {'Authorization': 'Bearer user-a'},
+        ),
+      );
+      expect(first.isSuccess, true);
+      expect(hits, 1);
+
+      final cacheOnlyClient = ApiClient(
+        ApiClientConfig.test(
+          baseUrl: 'https://api.example.com',
+          adapter: mock,
+          interceptors: [
+            CacheInterceptor(
+              store: store,
+              defaultPolicy: CachePolicy.cacheOnly(),
+            ),
+          ],
+        ),
+      );
+
+      final second = await cacheOnlyClient.get<dynamic>(
+        'profile',
+        options: const RequestOptions(
+          headers: {'Authorization': 'Bearer user-b'},
+        ),
+      );
+
+      expect(second.statusCode, 504);
+      expect(hits, 1);
     });
   });
 

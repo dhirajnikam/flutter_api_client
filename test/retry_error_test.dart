@@ -61,7 +61,6 @@ void main() {
           interceptors: [
             RetryInterceptor(
               policy: RetryPolicy(
-                maxAttempts: 3,
                 baseDelay: const Duration(milliseconds: 1),
                 useJitter: false,
               ),
@@ -120,7 +119,6 @@ void main() {
           interceptors: [
             RetryInterceptor(
               policy: RetryPolicy(
-                maxAttempts: 3,
                 baseDelay: const Duration(milliseconds: 1),
                 useJitter: false,
               ),

@@ -77,7 +77,7 @@ class SpecMockAdapter implements HttpAdapter {
         (r) => r.statusCode == overrideStatus,
         orElse: () => match.responses.first,
       );
-      return _toResponse(picked);
+      return _toResponse(picked, statusCode: overrideStatus);
     }
 
     final success = match.firstSuccess;
@@ -110,8 +110,9 @@ class SpecMockAdapter implements HttpAdapter {
     return b;
   }
 
-  AdapterResponse _toResponse(ResponseExample r) => AdapterResponse(
-        statusCode: r.statusCode,
+  AdapterResponse _toResponse(ResponseExample r, {int? statusCode}) =>
+      AdapterResponse(
+        statusCode: statusCode ?? r.statusCode,
         headers: Map<String, String>.from(r.headers),
         bodyBytes: _encode(r.body),
       );
@@ -160,6 +161,19 @@ class SpecMockAdapter implements HttpAdapter {
     }
     final document = body['query'] as String?;
     final operationName = body['operationName'] as String?;
+    final extensions = body['extensions'] as Map?;
+    final persistedQuery = extensions?['persistedQuery'] as Map?;
+    if (document == null && persistedQuery != null) {
+      return _gqlResponse(
+        200,
+        errors: const [
+          GraphQLErrorExample(
+            message: 'PersistedQueryNotFound',
+            extensions: {'code': 'PERSISTED_QUERY_NOT_FOUND'},
+          ),
+        ],
+      );
+    }
     if (document == null && operationName == null) {
       return _gqlError(
         400,
@@ -171,7 +185,6 @@ class SpecMockAdapter implements HttpAdapter {
     if (op == null) {
       return _gqlResponse(
         200,
-        data: null,
         errors: [
           GraphQLErrorExample(
             message:
@@ -192,7 +205,6 @@ class SpecMockAdapter implements HttpAdapter {
       if (problems.isNotEmpty) {
         return _gqlResponse(
           200,
-          data: null,
           errors: [
             GraphQLErrorExample(
               message: 'Variable validation failed: ${problems.join('; ')}',
@@ -206,7 +218,7 @@ class SpecMockAdapter implements HttpAdapter {
     final overrideKey = 'GQL ${op.name}';
     final overrideStatus = statusOverrides[overrideKey];
     if (overrideStatus != null && op.errors.isNotEmpty) {
-      return _gqlResponse(overrideStatus, data: null, errors: op.errors);
+      return _gqlResponse(overrideStatus, errors: op.errors);
     }
     return _gqlResponse(200, data: op.responseExample);
   }

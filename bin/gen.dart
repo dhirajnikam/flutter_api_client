@@ -83,11 +83,15 @@ void main(List<String> args) async {
   // Make specFile path relative to runnerDir for the import.
   final specRelative = _relativePath(from: runnerDir, to: parentSpecFile);
 
+  final generatedTestImport = packageImportFor(cwd, parentSpecFile) ??
+      _relativePath(from: '$cwd/test', to: parentSpecFile);
+
   // Write the temp runner.
   Directory(runnerDir).createSync(recursive: true);
   File(runnerPath).writeAsStringSync(
     _runnerSource(
       specRelative: specRelative,
+      generatedTestImport: generatedTestImport,
       outputDir: outputDir,
       framework: framework,
       generators: generators,
@@ -147,6 +151,7 @@ String _relativePath({required String from, required String to}) {
 
 String _runnerSource({
   required String specRelative,
+  required String generatedTestImport,
   required String outputDir,
   required String framework,
   required List<String> generators,
@@ -203,7 +208,11 @@ void main() {
   }
   if ($genTests) {
     final testDir = Directory('test');
-    final testContent = TestGenerator(spec).generate();
+    final testContent = TestGenerator(
+      spec,
+      specImport: '${generatedTestImport.replaceAll(r'\\', '/')}',
+      specSymbol: r'\$generatedSpec',
+    ).generate();
     final testPath = 'test/api_spec_test.dart';
     final testKb = (testContent.length / 1024).toStringAsFixed(1);
     if ($dryRun) {

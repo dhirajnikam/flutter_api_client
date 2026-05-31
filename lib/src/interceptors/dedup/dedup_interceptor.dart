@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import '../../core/api_exception.dart';
-import '../../core/query.dart';
 import '../../http/http_adapter.dart';
 import '../interceptor.dart';
+import '../request_identity.dart';
 
 /// Coalesces identical in-flight GET requests so the network is only hit
 /// once. Other matching callers receive the same response.
@@ -54,12 +54,5 @@ class DedupInterceptor extends Interceptor {
     return RejectResult(error);
   }
 
-  String _key(InterceptedRequest req) {
-    final url = buildUri(
-      baseUrl: req.options.baseUrlOverride ?? '',
-      endpoint: req.endpoint,
-      queryParameters: req.options.queryParameters,
-    ).toString();
-    return '${req.method.toUpperCase()} $url';
-  }
+  String _key(InterceptedRequest req) => requestIdentityKey(req);
 }

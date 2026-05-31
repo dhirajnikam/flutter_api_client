@@ -100,6 +100,35 @@ void main() {
       );
       expect(result.dataOrNull, 'Bob');
     });
+    test('malformed JSON on 200 returns Failure with ParseError', () async {
+      final mock = MockAdapter()
+        ..on('GET', RegExp(r'/broken-json$'),
+            statusCode: 200, body: '{"id":');
+      final client = ApiClient(
+        ApiClientConfig.test(baseUrl: 'https://api.example.com', adapter: mock),
+      );
+
+      final result = await client.get<Map<String, dynamic>>('broken-json');
+
+      expect(result.isFailure, true);
+      expect((result as Failure<Map<String, dynamic>>).error, isA<ParseError>());
+    });
+
+    test('decoder failure on 200 returns Failure with ParseError', () async {
+      final mock = MockAdapter()
+        ..on('GET', RegExp(r'/bad-decode$'), statusCode: 200, body: {'id': 7});
+      final client = ApiClient(
+        ApiClientConfig.test(baseUrl: 'https://api.example.com', adapter: mock),
+      );
+
+      final result = await client.get<String>(
+        'bad-decode',
+        decoder: (_) => throw StateError('boom'),
+      );
+
+      expect(result.isFailure, true);
+      expect((result as Failure<String>).error, isA<ParseError>());
+    });
   });
 
   group('ApiResult convenience getters', () {

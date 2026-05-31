@@ -1,6 +1,7 @@
 import 'dart:io';
-import 'package:flutter_api_client/src/gen/cli_helpers.dart';
+
 import 'package:flutter_api_client/flutter_api_client.dart';
+import 'package:flutter_api_client/src/gen/cli_helpers.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -65,6 +66,39 @@ void main() {
       addTearDown(() => dir.deleteSync(recursive: true));
       File('${dir.path}/other.g.dart').writeAsStringSync('// unrelated');
       expect(findGeneratedSpecFile(dir.path), isNull);
+    });
+  });
+
+  group('packageImportFor', () {
+    test('returns a package import for a file under lib/', () async {
+      final dir = await Directory.systemTemp.createTemp('gen_pkg_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+
+      File('${dir.path}/pubspec.yaml').writeAsStringSync('name: sample_pkg\n');
+      final libDir = Directory('${dir.path}/lib')..createSync(recursive: true);
+      final specFile = File('${libDir.path}/my_spec.dart')..writeAsStringSync('');
+
+      expect(
+        packageImportFor(dir.path, specFile.path),
+        'package:sample_pkg/my_spec.dart',
+      );
+    });
+  });
+
+  group('buildApiSpecSmokeTestSource', () {
+    test('emits analyzer-safe scaffold content', () {
+      final source = buildApiSpecSmokeTestSource(
+        importPath: 'package:sample_pkg/my_spec.dart',
+        specSymbol: 'mySpec',
+      );
+
+      expect(source, contains('ignore_for_file: depend_on_referenced_packages'));
+      expect(
+        source,
+        contains("import 'package:sample_pkg/my_spec.dart';"),
+      );
+      expect(source, isNot(contains("import 'package:flutter_api_client/flutter_api_client.dart';")));
+      expect(source, contains('expect(mySpec.endpoints, isNotEmpty);'));
     });
   });
 }

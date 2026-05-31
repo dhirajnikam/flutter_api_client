@@ -110,6 +110,21 @@ void main() {
           includeToken: false);
       expect(res.statusCode, 401);
     });
+
+    test('statusOverrides can force a status without a matching response example',
+        () async {
+      final client = ApiClient(
+        ApiClientConfig.test(
+          baseUrl: 'https://api.example.com/api/v1',
+          adapter: SpecMockAdapter(
+            _sampleSpec(),
+            statusOverrides: const {'GET /users/{id}': 401},
+          ),
+        ),
+      );
+      final res = await client.get<dynamic>('users/1');
+      expect(res.statusCode, 401);
+    });
   });
 
   group('Generators', () {

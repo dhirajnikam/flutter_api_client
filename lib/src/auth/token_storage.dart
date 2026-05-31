@@ -5,7 +5,7 @@
 abstract class TokenStorage {
   Future<String?> getAccessToken();
   Future<void> setAccessToken(String? token);
-  Future<String?> getRefreshToken() => Future.value(null);
+  Future<String?> getRefreshToken() => Future<String?>.value();
   Future<void> setRefreshToken(String? token) => Future.value();
   Future<void> clear() async {
     await setAccessToken(null);

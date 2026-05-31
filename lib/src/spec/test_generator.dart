@@ -5,9 +5,15 @@ import 'api_spec.dart';
 /// Call [generate] to get the full Dart source as a string.
 /// Mirrors [MarkdownDocGenerator] and [OpenApiGenerator] in shape.
 class TestGenerator {
-  TestGenerator(this.spec);
+  TestGenerator(
+    this.spec, {
+    this.specImport,
+    this.specSymbol = 'spec',
+  });
 
   final ApiSpec spec;
+  final String? specImport;
+  final String specSymbol;
 
   String generate() {
     final buf = StringBuffer();
@@ -16,6 +22,9 @@ class TestGenerator {
     buf.writeln();
     buf.writeln("import 'package:flutter_api_client/flutter_api_client.dart';");
     buf.writeln("import 'package:flutter_test/flutter_test.dart';");
+    if (specImport != null) {
+      buf.writeln("import '$specImport';");
+    }
     buf.writeln();
 
     final byTag = <String, List<EndpointSpec>>{};
@@ -92,7 +101,7 @@ class TestGenerator {
   String _clientSetup(String baseUrl, String overrides) =>
       '      final client = ApiClient(ApiClientConfig.test(\n'
       "        baseUrl: '$baseUrl',\n"
-      '        adapter: SpecMockAdapter(spec$overrides),\n'
+      '        adapter: SpecMockAdapter($specSymbol$overrides),\n'
       '      ));';
 
   String _callLine(EndpointSpec ep, String path) {

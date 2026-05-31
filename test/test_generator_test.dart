@@ -51,7 +51,6 @@ ApiSpec _protectedSpec() => ApiSpec(
     )..group('Items', (g) {
         g.endpoint(
           'POST /items',
-          auth: true,
           responses: [
             ResponseExample.created({'id': 1})
           ],
@@ -124,6 +123,20 @@ void main() {
     test('includes GENERATED CODE header', () {
       final out = TestGenerator(_minimalSpec()).generate();
       expect(out, contains('GENERATED CODE - DO NOT MODIFY BY HAND'));
+    });
+
+    test('supports a custom spec import and symbol', () {
+      final out = TestGenerator(
+        _minimalSpec(),
+        specImport: 'package:flutter_api_client_example/my_spec.dart',
+        specSymbol: r'$generatedSpec',
+      ).generate();
+
+      expect(
+        out,
+        contains("import 'package:flutter_api_client_example/my_spec.dart';"),
+      );
+      expect(out, contains(r'SpecMockAdapter($generatedSpec)'));
     });
   });
 }

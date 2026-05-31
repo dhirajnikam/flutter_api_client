@@ -1,8 +1,9 @@
 import 'dart:typed_data';
 
-import '../../core/query.dart';
+import '../../core/api_exception.dart';
 import '../../http/http_adapter.dart';
 import '../interceptor.dart';
+import '../request_identity.dart';
 import 'cache_policy.dart';
 import 'cache_store.dart';
 
@@ -111,18 +112,34 @@ class CacheInterceptor extends Interceptor {
     return ResolveResult(res);
   }
 
+  @override
+  Future<InterceptorResult> onError(
+    InterceptedRequest req,
+    ApiException error,
+  ) async {
+    if (!cacheMethods.contains(req.method.toUpperCase())) {
+      return RejectResult(error);
+    }
+    final policy = _policyFor(req);
+    if (policy == null || policy.mode != CacheMode.networkFirst) {
+      return RejectResult(error);
+    }
+    if (error is! NetworkError && error is! TimeoutError) {
+      return RejectResult(error);
+    }
+
+    final entry = await store.read(_key(req));
+    if (entry != null) {
+      return ResolveResult(_toResponse(entry, true));
+    }
+    return RejectResult(error);
+  }
+
   AdapterResponse _toResponse(CacheEntry e, bool hit) => AdapterResponse(
         statusCode: e.statusCode,
         headers: {...e.headers, _hitHeader: hit ? 'hit' : 'miss'},
         bodyBytes: e.bodyBytes,
       );
 
-  String _key(InterceptedRequest req) {
-    final url = buildUri(
-      baseUrl: req.options.baseUrlOverride ?? '',
-      endpoint: req.endpoint,
-      queryParameters: req.options.queryParameters,
-    ).toString();
-    return '${req.method.toUpperCase()} $url';
-  }
+  String _key(InterceptedRequest req) => requestIdentityKey(req);
 }

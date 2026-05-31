@@ -121,6 +121,22 @@ void main() {
       expect(res.statusCode, 401);
       expect(res.errors.first.message, contains('Invalid credentials'));
     });
+
+    test('APQ falls back to the full document after PersistedQueryNotFound',
+        () async {
+      final gql = GraphQLClient(
+        _buildClient(_gqlSpec()),
+        usePersistedQueries: true,
+      );
+      final res = await gql.query<String>(
+        r'query Me { me { id name } }',
+        decoder: (data) => (data as Map)['me']['name'] as String,
+        includeToken: false,
+      );
+      expect(res.isSuccess, true);
+      expect(res.data, 'Alice');
+      expect(res.errors, isEmpty);
+    });
   });
 
   group('Generators (GraphQL)', () {

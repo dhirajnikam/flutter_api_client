@@ -1,6 +1,7 @@
 import 'package:build/build.dart';
 import 'package:source_gen/source_gen.dart';
 
+import 'cli_helpers.dart';
 import 'api_spec_entry.dart';
 
 Builder apiSpecBuilder(BuilderOptions options) =>
@@ -44,32 +45,14 @@ class _ApiSpecTestBuilder implements Builder {
     if (annotated.isEmpty) return;
 
     final varName = annotated.first.name!;
-    final inputBasename = buildStep.inputId.pathSegments.last;
-
-    final content = '''
-// GENERATED CODE - DO NOT MODIFY BY HAND
-// Run `dart run build_runner build` to regenerate.
-
-import 'package:flutter_api_client/flutter_api_client.dart';
-import 'package:flutter_test/flutter_test.dart';
-import './$inputBasename';
-
-void main() {
-  test('spec loads without error', () {
-    expect($varName, isNotNull);
-    expect($varName.endpoints, isNotEmpty);
-  });
-
-  group('Endpoint registration', () {
-    for (final ep in $varName.endpoints) {
-      test('\${ep.method} \${ep.path} is registered', () {
-        expect(ep.path, startsWith('/'));
-        expect(ep.method, isNotEmpty);
-      });
-    }
-  });
-}
-''';
+    final importPath = packageImportFromLibPath(
+      buildStep.inputId.package,
+      buildStep.inputId.path,
+    );
+    final content = buildApiSpecSmokeTestSource(
+      importPath: importPath,
+      specSymbol: varName,
+    );
 
     final outputId = buildStep.inputId.changeExtension('.test.g.dart');
     await buildStep.writeAsString(outputId, content);
