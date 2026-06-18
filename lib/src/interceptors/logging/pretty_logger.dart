@@ -53,6 +53,14 @@ class PrettyLogger extends Interceptor {
     for (final key in redactBodyKeys) _normalizeKey(key),
   };
 
+  /// Header names are matched case-insensitively. A caller that passes
+  /// `{'Authorization'}` (mixed case) must still get redaction — otherwise the
+  /// secret leaks into logs. Normalize the set once instead of trusting the
+  /// caller to lowercase it.
+  late final Set<String> _normalizedRedactHeaders = {
+    for (final name in redactHeaders) name.toLowerCase(),
+  };
+
   String _c(String code, String s) => useColors ? '$code$s$_reset' : s;
 
   @override
@@ -101,7 +109,9 @@ class PrettyLogger extends Interceptor {
   }
 
   String _redactHeaderValue(String name, String value) =>
-      redactHeaders.contains(name.toLowerCase()) ? '<redacted>' : value;
+      _normalizedRedactHeaders.contains(name.toLowerCase())
+          ? '<redacted>'
+          : value;
 
   /// Redacts values for keys in [redactBodyKeys] from a JSON body string.
   /// Returns the original [body] if it isn't valid JSON.

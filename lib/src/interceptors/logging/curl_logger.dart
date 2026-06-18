@@ -39,6 +39,12 @@ class CurlLogger extends Interceptor {
     for (final key in redactBodyKeys) _normalizeKey(key),
   };
 
+  /// Case-insensitive header redaction set (see [PrettyLogger]). A mixed-case
+  /// caller-supplied name must still be redacted in the emitted curl command.
+  late final Set<String> _normalizedRedactHeaders = {
+    for (final name in redactHeaders) name.toLowerCase(),
+  };
+
   @override
   Future<InterceptorResult> onRequest(InterceptedRequest req) async {
     printer(_toCurl(req));
@@ -48,7 +54,8 @@ class CurlLogger extends Interceptor {
   String _toCurl(InterceptedRequest req) {
     final buf = StringBuffer('curl -X ${req.method}');
     req.headers.forEach((k, v) {
-      final value = redactHeaders.contains(k.toLowerCase()) ? '<redacted>' : v;
+      final value =
+          _normalizedRedactHeaders.contains(k.toLowerCase()) ? '<redacted>' : v;
       buf.write(" -H '${k.replaceAll("'", r"\'")}: $value'");
     });
     if (req.data != null && !req.isMultipart) {

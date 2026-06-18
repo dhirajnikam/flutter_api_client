@@ -1,7 +1,9 @@
+import '../../core/policies.dart';
+
 /// How a request interacts with the cache.
 enum CacheMode { networkFirst, cacheFirst, staleWhileRevalidate, cacheOnly }
 
-class CachePolicy {
+class CachePolicy implements CachePolicyInterface {
   const CachePolicy({
     required this.mode,
     this.ttl = const Duration(minutes: 5),

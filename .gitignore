@@ -33,3 +33,6 @@ migrate_working_dir/
 
 # Local git worktrees
 .worktrees/
+
+# teammates coordination state
+.teammates/

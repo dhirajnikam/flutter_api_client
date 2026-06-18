@@ -165,10 +165,28 @@ class Schema {
         }
         break;
       case 'integer':
-        if (value is! int) errors.add('$path: expected integer');
+        if (value is! int) {
+          errors.add('$path: expected integer');
+        } else {
+          if (minimum != null && value < minimum!) {
+            errors.add('$path: minimum $minimum');
+          }
+          if (maximum != null && value > maximum!) {
+            errors.add('$path: maximum $maximum');
+          }
+        }
         break;
       case 'number':
-        if (value is! num) errors.add('$path: expected number');
+        if (value is! num) {
+          errors.add('$path: expected number');
+        } else {
+          if (minimum != null && value < minimum!) {
+            errors.add('$path: minimum $minimum');
+          }
+          if (maximum != null && value > maximum!) {
+            errors.add('$path: maximum $maximum');
+          }
+        }
         break;
       case 'boolean':
         if (value is! bool) errors.add('$path: expected boolean');

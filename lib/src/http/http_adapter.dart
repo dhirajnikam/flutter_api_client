@@ -46,12 +46,17 @@ class AdapterResponse {
     required this.headers,
     required this.bodyBytes,
     this.reasonPhrase,
+    this.bodyStream,
   });
 
   final int statusCode;
   final Map<String, String> headers;
   final Uint8List bodyBytes;
   final String? reasonPhrase;
+
+  /// When non-null, the body has not been buffered into [bodyBytes] and is
+  /// instead available as a live byte stream. Produced by [HttpAdapter.sendStreaming].
+  final Stream<List<int>>? bodyStream;
 }
 
 /// Pluggable transport. Swap out [DefaultHttpAdapter] for `cupertino_http`,
@@ -61,4 +66,14 @@ abstract class HttpAdapter {
 
   /// Releases any persistent resources.
   void close();
+}
+
+/// Optional capability an [HttpAdapter] may also implement to return an
+/// unbuffered response body via [AdapterResponse.bodyStream].
+///
+/// Kept separate from [HttpAdapter] so adding streaming never breaks existing
+/// adapters that `implements HttpAdapter`. `ApiClient.stream` uses it when the
+/// configured adapter provides it, and otherwise falls back to buffering.
+abstract interface class StreamingHttpAdapter {
+  Future<AdapterResponse> sendStreaming(AdapterRequest request);
 }

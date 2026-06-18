@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
+
 import '../core/api_client.dart';
 import '../core/api_exception.dart';
 import '../core/request_options.dart';
@@ -36,8 +38,9 @@ class GraphQLClient {
   /// Enable Automatic Persisted Queries.
   final bool usePersistedQueries;
 
-  /// Hashes a query document for APQ. Defaults to a simple length+codepoint
-  /// hash — replace with SHA-256 in user-land for real persisted queries.
+  /// Hashes a query document for APQ. Defaults to the SHA-256 hex digest the
+  /// APQ protocol requires, so the persisted-query fast path can actually
+  /// match a server-registered document. Override only for a custom registry.
   final String Function(String document)? hashQuery;
 
   Future<GraphQLResponse<T>> query<T>(
@@ -83,15 +86,39 @@ class GraphQLClient {
     required bool includeToken,
   }) async {
     if (usePersistedQueries) {
-      final hashed = await _tryPersisted<T>(
-        document: document,
-        variables: variables,
-        operationName: operationName,
+      final hash = (hashQuery ?? _defaultHash)(document);
+      final firstAttempt = await _post<T>(
+        payload: {
+          if (operationName != null) 'operationName': operationName,
+          if (variables != null) 'variables': variables,
+          'extensions': {
+            'persistedQuery': {'version': 1, 'sha256Hash': hash},
+          },
+        },
         decoder: decoder,
         options: options,
         includeToken: includeToken,
       );
-      if (hashed != null) return hashed;
+      if (!firstAttempt.errors.any(_isPersistedQueryMiss)) return firstAttempt;
+      // APQ cache miss: resend the full document AND the hash so the server
+      // registers it for future requests. Sending the document without the
+      // hash would defeat APQ entirely — every subsequent call would miss and
+      // pay the round-trip again.
+      return _post<T>(
+        payload: {
+          ..._buildPayload(
+            document: document,
+            variables: variables,
+            operationName: operationName,
+          ),
+          'extensions': {
+            'persistedQuery': {'version': 1, 'sha256Hash': hash},
+          },
+        },
+        decoder: decoder,
+        options: options,
+        includeToken: includeToken,
+      );
     }
     return _post<T>(
       payload: _buildPayload(
@@ -105,31 +132,21 @@ class GraphQLClient {
     );
   }
 
-  Future<GraphQLResponse<T>?> _tryPersisted<T>({
-    required String document,
-    Map<String, dynamic>? variables,
-    String? operationName,
-    GraphQLDecoder<T>? decoder,
-    RequestOptions? options,
-    required bool includeToken,
-  }) async {
-    final hash = (hashQuery ?? _defaultHash)(document);
-    final firstAttempt = await _post<T>(
-      payload: {
-        if (operationName != null) 'operationName': operationName,
-        if (variables != null) 'variables': variables,
-        'extensions': {
-          'persistedQuery': {'version': 1, 'sha256Hash': hash},
-        },
-      },
-      decoder: decoder,
-      options: options,
-      includeToken: includeToken,
-    );
-    final needFull = firstAttempt.errors.any(
-      (e) => e.message == 'PersistedQueryNotFound',
-    );
-    return needFull ? null : firstAttempt;
+  /// True when a GraphQL error signals an APQ cache miss that must be retried
+  /// with the full document. Per the APQ protocol the canonical signal lives in
+  /// `extensions.code` (`PERSISTED_QUERY_NOT_FOUND` /
+  /// `PERSISTED_QUERY_NOT_SUPPORTED`); many servers also echo it in the message
+  /// (`PersistedQueryNotFound` / `PersistedQueryNotSupported`). Accept both so
+  /// the fast path falls back instead of surfacing a spurious failure.
+  static bool _isPersistedQueryMiss(GraphQLError e) {
+    final code = e.extensions?['code']?.toString();
+    if (code == 'PERSISTED_QUERY_NOT_FOUND' ||
+        code == 'PERSISTED_QUERY_NOT_SUPPORTED') {
+      return true;
+    }
+    final msg = e.message;
+    return msg == 'PersistedQueryNotFound' ||
+        msg == 'PersistedQueryNotSupported';
   }
 
   Map<String, Object?> _buildPayload({
@@ -164,11 +181,13 @@ class GraphQLClient {
         networkError: NetworkError(raw.errorMessage ?? 'transport error'),
       );
     }
-    // For non-2xx HTTP responses, body lives in HttpError.body.
-    final body = raw.data ??
-        (raw.error is HttpError
-            ? (raw.error as HttpError).body as Map<String, dynamic>?
-            : null);
+    // For non-2xx HTTP responses, body lives in HttpError.body. Guard the cast:
+    // a non-object error body (List/scalar/text) is not a GraphQL envelope, so
+    // treat it as "no envelope" rather than throwing a TypeError out of _post.
+    final errorBody =
+        raw.error is HttpError ? (raw.error as HttpError).body : null;
+    final body =
+        raw.data ?? (errorBody is Map<String, dynamic> ? errorBody : null);
     if (body == null) {
       return GraphQLResponse<T>(
         statusCode: raw.statusCode ?? 0,
@@ -205,7 +224,26 @@ class GraphQLClient {
           );
         }
       } else {
-        data = dataRaw as T?;
+        try {
+          data = dataRaw as T?;
+        } on TypeError catch (e, st) {
+          // No decoder supplied and the raw `data` field does not match the
+          // requested `T`. Surface a typed ParseError instead of letting a
+          // TypeError escape `query`/`mutation`, which would violate their
+          // contract of always returning a GraphQLResponse.
+          return GraphQLResponse<T>(
+            statusCode: raw.statusCode ?? 0,
+            data: null,
+            errors: errors,
+            isSuccess: false,
+            networkError: ParseError(
+              'GraphQL `data` could not be cast to the expected type. '
+              'Supply a `decoder` for non-primitive types.',
+              cause: e,
+              stackTrace: st,
+            ),
+          );
+        }
       }
     }
 
@@ -220,11 +258,7 @@ class GraphQLClient {
   }
 }
 
-/// Default (non-cryptographic) hash. Replace with SHA-256 for production.
-String _defaultHash(String document) {
-  var h = 0;
-  for (final code in utf8.encode(document)) {
-    h = (h * 31 + code) & 0xFFFFFFFF;
-  }
-  return h.toRadixString(16).padLeft(8, '0');
-}
+/// SHA-256 hex digest of the query document — the hash APQ servers key their
+/// document registry by, so the persisted-query fast path can match.
+String _defaultHash(String document) =>
+    sha256.convert(utf8.encode(document)).toString();

@@ -88,13 +88,30 @@ class CacheInterceptor extends Interceptor {
     if (!cacheMethods.contains(req.method.toUpperCase())) {
       return ResolveResult(res);
     }
+    // A streaming body is not buffered, so there is nothing to cache.
+    if (res.bodyStream != null) return ResolveResult(res);
     final policy = _policyFor(req);
     if (policy == null) return ResolveResult(res);
     final key = _key(req);
 
     if (res.statusCode == 304) {
       final entry = await store.read(key);
-      if (entry != null) return ResolveResult(_toResponse(entry, true));
+      if (entry != null) {
+        // A 304 means the origin confirmed the cached body is still current,
+        // so restart its freshness window. Without refreshing savedAt the
+        // entry stays "stale" forever and every future request revalidates,
+        // defeating the TTL. Carry forward an updated ETag if the 304 sent one.
+        final refreshed = CacheEntry(
+          key: entry.key,
+          statusCode: entry.statusCode,
+          headers: entry.headers,
+          bodyBytes: entry.bodyBytes,
+          savedAt: DateTime.now(),
+          etag: res.headers['etag'] ?? res.headers['ETag'] ?? entry.etag,
+        );
+        await store.write(refreshed);
+        return ResolveResult(_toResponse(refreshed, true));
+      }
     }
     if (res.statusCode >= 200 && res.statusCode < 300) {
       final etag = res.headers['etag'] ?? res.headers['ETag'];
@@ -121,8 +138,19 @@ class CacheInterceptor extends Interceptor {
       return RejectResult(error);
     }
     final policy = _policyFor(req);
-    if (policy == null || policy.mode != CacheMode.networkFirst) {
-      return RejectResult(error);
+    if (policy == null) return RejectResult(error);
+    // Any read-through mode that keeps a copy should be able to serve it when
+    // the network is unreachable. cacheOnly never reaches the network (so it
+    // never lands here); the other three should all degrade gracefully to the
+    // last-known-good body on a transient failure rather than surfacing an
+    // error the cache could have answered.
+    switch (policy.mode) {
+      case CacheMode.cacheOnly:
+        return RejectResult(error);
+      case CacheMode.networkFirst:
+      case CacheMode.cacheFirst:
+      case CacheMode.staleWhileRevalidate:
+        break;
     }
     if (error is! NetworkError && error is! TimeoutError) {
       return RejectResult(error);

@@ -5,6 +5,7 @@ const Set<String> _internalRequestHeaders = {
   'x-fac-cache-revalidate',
   'x-fac-dedup-key',
   'x-fac-retried-auth',
+  'x-fac-auth-token-fp',
   'x-fac-retry-attempt',
 };
 

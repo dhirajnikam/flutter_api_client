@@ -37,7 +37,21 @@ Uri buildUri({
       : baseUrl;
   final ep = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint;
   final qs = queryParameters == null ? '' : buildQueryString(queryParameters);
-  final hasQ = ep.contains('?');
-  final url = qs.isEmpty ? '$base/$ep' : '$base/$ep${hasQ ? '&' : '?'}$qs';
-  return Uri.parse(url);
+  if (qs.isEmpty) return Uri.parse('$base/$ep');
+
+  // Choose the correct separator when merging `qs` onto an endpoint that may
+  // already carry a query string:
+  //   - no '?'        -> start a query with '?'
+  //   - '?' with body -> append with '&'
+  //   - trailing '?'  -> empty existing query, append directly (no '&')
+  final qIndex = ep.indexOf('?');
+  final String separator;
+  if (qIndex < 0) {
+    separator = '?';
+  } else if (qIndex == ep.length - 1) {
+    separator = ''; // endpoint ends in a bare '?', e.g. "users?"
+  } else {
+    separator = '&';
+  }
+  return Uri.parse('$base/$ep$separator$qs');
 }

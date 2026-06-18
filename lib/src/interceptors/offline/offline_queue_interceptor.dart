@@ -15,6 +15,14 @@ class OfflineQueueInterceptor extends Interceptor {
   final Set<String> methods;
   final Future<bool> Function()? isOnline;
 
+  /// Monotonic per-instance sequence appended to each id. Two mutations to the
+  /// same endpoint inside one microsecond (or whose `endpoint.hashCode`
+  /// collides) would otherwise mint identical ids, and a keyed persistent
+  /// store ([HiveOfflineQueueStore] uses `box.put(id, ...)`) would silently
+  /// overwrite the first — losing a write. The counter guarantees uniqueness
+  /// regardless of clock resolution or hash collisions.
+  int _seq = 0;
+
   @override
   Future<InterceptorResult> onError(
     InterceptedRequest req,
@@ -26,14 +34,17 @@ class OfflineQueueInterceptor extends Interceptor {
     }
     final online = isOnline == null ? false : await isOnline!();
     if (online) return RejectResult(error);
+    final now = DateTime.now();
+    final id =
+        '${now.microsecondsSinceEpoch}-${_seq++}-${req.endpoint.hashCode}';
     await store.enqueue(
       QueuedRequest(
-        id: '${DateTime.now().microsecondsSinceEpoch}-${req.endpoint.hashCode}',
+        id: id,
         method: req.method,
         endpoint: req.endpoint,
         headers: _queuedHeaders(req.headers),
         body: req.data,
-        createdAt: DateTime.now(),
+        createdAt: now,
       ),
     );
     return RejectResult(error);

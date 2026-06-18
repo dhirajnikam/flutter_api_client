@@ -58,7 +58,10 @@ void main() {
       addTearDown(() => dir.deleteSync(recursive: true));
       final f = File('${dir.path}/api_spec.g.dart');
       f.writeAsStringSync('ApiSpec get \$generatedSpec => mySpec;');
-      expect(findGeneratedSpecFile(dir.path), equals(f.path));
+      // The contract is a forward-slash-normalized path, independent of the
+      // platform separator (Directory.listSync yields `\` on Windows).
+      final expected = '${dir.path}/api_spec.g.dart'.replaceAll('\\', '/');
+      expect(findGeneratedSpecFile(dir.path), equals(expected));
     });
 
     test('returns null for .g.dart without \$generatedSpec', () async {
@@ -76,7 +79,8 @@ void main() {
 
       File('${dir.path}/pubspec.yaml').writeAsStringSync('name: sample_pkg\n');
       final libDir = Directory('${dir.path}/lib')..createSync(recursive: true);
-      final specFile = File('${libDir.path}/my_spec.dart')..writeAsStringSync('');
+      final specFile = File('${libDir.path}/my_spec.dart')
+        ..writeAsStringSync('');
 
       expect(
         packageImportFor(dir.path, specFile.path),
@@ -92,12 +96,16 @@ void main() {
         specSymbol: 'mySpec',
       );
 
-      expect(source, contains('ignore_for_file: depend_on_referenced_packages'));
+      expect(
+          source, contains('ignore_for_file: depend_on_referenced_packages'));
       expect(
         source,
         contains("import 'package:sample_pkg/my_spec.dart';"),
       );
-      expect(source, isNot(contains("import 'package:flutter_api_client/flutter_api_client.dart';")));
+      expect(
+          source,
+          isNot(contains(
+              "import 'package:flutter_api_client/flutter_api_client.dart';")));
       expect(source, contains('expect(mySpec.endpoints, isNotEmpty);'));
     });
   });

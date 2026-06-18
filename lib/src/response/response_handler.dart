@@ -60,12 +60,16 @@ class ResponseHandler implements ResponseHandlerInterface {
   @override
   bool isHtmlOrTextResponse(String body) {
     final t = body.trim();
-    if (t.startsWith('<!DOCTYPE html>') ||
-        t.startsWith('<html') ||
-        (t.contains('<head>') && t.contains('<body>'))) {
+    if (t.isEmpty) return false;
+    // Case-insensitive prefix match so `<!doctype html>`, `<!DOCTYPE HTML ...>`
+    // and `<HTML>` are all classified as HTML. (HTML markup is case-insensitive
+    // and real servers emit mixed/lower case.)
+    final lower = t.toLowerCase();
+    if (lower.startsWith('<!doctype html') ||
+        lower.startsWith('<html') ||
+        (lower.contains('<head>') && lower.contains('<body>'))) {
       return true;
     }
-    if (t.isEmpty) return false;
     if (t.length < 5 && !t.startsWith('{') && !t.startsWith('[')) {
       return true;
     }

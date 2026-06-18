@@ -19,6 +19,7 @@ class QueuedRequest {
     required this.headers,
     this.body,
     required this.createdAt,
+    this.attempts = 0,
   });
 
   final String id;
@@ -28,6 +29,20 @@ class QueuedRequest {
   final Object? body;
   final DateTime createdAt;
 
+  /// Number of replay attempts already made. Used to dead-letter poison
+  /// requests that keep failing instead of replaying them forever.
+  final int attempts;
+
+  QueuedRequest withAttempt() => QueuedRequest(
+        id: id,
+        method: method,
+        endpoint: endpoint,
+        headers: headers,
+        body: body,
+        createdAt: createdAt,
+        attempts: attempts + 1,
+      );
+
   Map<String, Object?> toJson() => {
         'id': id,
         'method': method,
@@ -35,18 +50,62 @@ class QueuedRequest {
         'headers': headers,
         'body': body,
         'createdAt': createdAt.toIso8601String(),
+        'attempts': attempts,
       };
 
-  factory QueuedRequest.fromJson(Map<String, Object?> json) => QueuedRequest(
-        id: json['id'] as String,
-        method: json['method'] as String,
-        endpoint: json['endpoint'] as String,
-        headers: (json['headers'] as Map).map(
-          (key, value) => MapEntry(key as String, value as String),
-        ),
-        body: json['body'],
-        createdAt: DateTime.parse(json['createdAt'] as String),
-      );
+  factory QueuedRequest.fromJson(Map<String, Object?> json) {
+    final parsed = tryFromJson(json);
+    if (parsed == null) {
+      throw FormatException('Malformed QueuedRequest JSON', json);
+    }
+    return parsed;
+  }
+
+  /// Lenient parse that returns `null` instead of throwing when a record is
+  /// malformed. Persistent stores use this so one corrupt entry cannot poison
+  /// an entire [OfflineQueueStore.drain] (which would silently drop every
+  /// other pending mutation).
+  static QueuedRequest? tryFromJson(Map<String, Object?> json) {
+    final id = json['id'];
+    final method = json['method'];
+    final endpoint = json['endpoint'];
+    final createdAtRaw = json['createdAt'];
+    if (id is! String ||
+        method is! String ||
+        endpoint is! String ||
+        createdAtRaw is! String) {
+      return null;
+    }
+    final createdAt = DateTime.tryParse(createdAtRaw);
+    if (createdAt == null) return null;
+
+    final headers = <String, String>{};
+    final rawHeaders = json['headers'];
+    if (rawHeaders is Map) {
+      for (final entry in rawHeaders.entries) {
+        final key = entry.key;
+        final value = entry.value;
+        if (key is String && value is String) {
+          headers[key] = value;
+        }
+      }
+    }
+
+    final attemptsRaw = json['attempts'];
+    final attempts = attemptsRaw is int
+        ? attemptsRaw
+        : (attemptsRaw is num ? attemptsRaw.toInt() : 0);
+
+    return QueuedRequest(
+      id: id,
+      method: method,
+      endpoint: endpoint,
+      headers: headers,
+      body: json['body'],
+      createdAt: createdAt,
+      attempts: attempts < 0 ? 0 : attempts,
+    );
+  }
 }
 
 /// Default in-memory queue store (volatile). Replace with a persistent
@@ -88,16 +147,27 @@ class HiveOfflineQueueStore implements OfflineQueueStore {
 
   @override
   Future<List<QueuedRequest>> drain() async {
-    final out = box.values
-        .map((value) => QueuedRequest.fromJson(
-              (jsonDecode(value) as Map).cast<String, Object?>(),
-            ))
-        .toList()
-      ..sort((a, b) {
-        final createdAt = a.createdAt.compareTo(b.createdAt);
-        if (createdAt != 0) return createdAt;
-        return a.id.compareTo(b.id);
-      });
+    final out = <QueuedRequest>[];
+    // Parse every record defensively: a single corrupt or partially-written
+    // value (e.g. from a crash mid-write) must not throw and abandon the whole
+    // queue. Bad entries are skipped; everything decodable is still replayed.
+    for (final value in box.values) {
+      QueuedRequest? parsed;
+      try {
+        final decoded = jsonDecode(value);
+        if (decoded is Map) {
+          parsed = QueuedRequest.tryFromJson(decoded.cast<String, Object?>());
+        }
+      } catch (_) {
+        parsed = null;
+      }
+      if (parsed != null) out.add(parsed);
+    }
+    out.sort((a, b) {
+      final createdAt = a.createdAt.compareTo(b.createdAt);
+      if (createdAt != 0) return createdAt;
+      return a.id.compareTo(b.id);
+    });
     await box.clear();
     return out;
   }

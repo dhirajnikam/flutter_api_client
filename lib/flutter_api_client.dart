@@ -6,7 +6,8 @@
 /// - Type-safe generic methods: `get<T>`, `post<T>`, `put<T>`, `patch<T>`, `delete<T>`
 /// - Sealed `ApiResult<T>` with exhaustive `Success`/`Failure` pattern matching
 /// - Custom decoders to transform JSON directly to your model types
-/// - Multiple response modes: JSON, bytes, plain text, streaming
+/// - Multiple response modes: JSON, bytes, and plain text (real streaming is
+///   available separately via `ApiClient.stream()`)
 /// - Multipart file uploads with progress tracking
 /// - Automatic query parameter encoding
 ///
@@ -38,7 +39,7 @@
 ///
 /// ### Testing
 /// - [MockAdapter]: Route-based mocking with request capture
-/// - Built-in test suite with 107+ passing tests
+/// - Built-in test suite with 244+ passing tests
 /// - No external mock dependencies
 ///
 /// ## Quick Start
@@ -62,10 +63,15 @@
 /// );
 /// ```
 ///
-/// ## Version 1.0.3
-/// - Stripped internal `x-fac-*` control headers before transport dispatch
-/// - Restricted automatic status-code retries to `safeMethods` by default
-/// - Hardened offline-queue and logger secret handling
+/// ## Version 1.1.0
+/// - Real streaming downloads via `ApiClient.stream()` / [HttpStreamResponse]
+///   ([StreamingHttpAdapter] capability; buffering fallback when unsupported)
+/// - [OfflineQueueReplayer]: drains the queue in `createdAt` order, re-attaches
+///   a fresh auth token, and dead-letters poison messages after `maxAttempts`
+/// - [MemoryCacheStore] optional `maxBytes` cap (evicts by total body size)
+/// - Hardened retries (clamped `Retry-After` + HTTP-date, full jitter), dedup
+///   (no retry deadlock), and GraphQL APQ (real SHA-256 query hashing)
+/// - Statically typed `RequestOptions.retryPolicy` / `cachePolicy`
 library;
 
 // Core
@@ -74,6 +80,7 @@ export 'src/core/api_exception.dart';
 export 'src/core/api_result.dart';
 export 'src/core/cancel_token.dart';
 export 'src/core/form_data.dart';
+export 'src/core/policies.dart';
 export 'src/core/query.dart';
 export 'src/core/request_options.dart';
 export 'src/core/response_type.dart';
@@ -87,6 +94,7 @@ export 'src/auth/token_storage.dart';
 // HTTP
 export 'src/http/default_http_adapter.dart' hide encodeBody;
 export 'src/http/http_adapter.dart';
+export 'src/http/http_stream_response.dart';
 export 'src/http/mock_adapter.dart';
 
 // Interceptors
@@ -101,6 +109,7 @@ export 'src/interceptors/logging/curl_logger.dart';
 export 'src/interceptors/logging/pretty_logger.dart';
 export 'src/interceptors/offline/offline_queue.dart';
 export 'src/interceptors/offline/offline_queue_interceptor.dart';
+export 'src/interceptors/offline/offline_queue_replayer.dart';
 export 'src/interceptors/retry/retry_interceptor.dart';
 export 'src/interceptors/retry/retry_policy.dart';
 
