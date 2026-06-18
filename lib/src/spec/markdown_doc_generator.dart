@@ -4,10 +4,18 @@ import 'graphql_spec.dart';
 
 /// Generates a human-readable Markdown API reference from an [ApiSpec].
 class MarkdownDocGenerator {
+  /// Creates a generator for [spec].
   MarkdownDocGenerator(this.spec);
 
+  /// The spec this generator documents.
   final ApiSpec spec;
 
+  // Fixed patterns reused across every endpoint/tag — compiled once.
+  static final RegExp _placeholder = RegExp(r'\{([^}]+)\}');
+  static final RegExp _anchorStrip = RegExp(r'[^a-z0-9 -]');
+  static final RegExp _anchorSpaces = RegExp(r'\s+');
+
+  /// Renders the full Markdown API reference.
   String generate() {
     final buf = StringBuffer();
     buf.writeln('# ${spec.title} — API Reference');
@@ -188,7 +196,7 @@ class MarkdownDocGenerator {
   }
 
   String _curl(EndpointSpec ep, String base) {
-    final path = ep.path.replaceAllMapped(RegExp(r'\{([^}]+)\}'), (m) {
+    final path = ep.path.replaceAllMapped(_placeholder, (m) {
       final schema = ep.pathParams[m.group(1)];
       return '${schema?.example ?? ':${m.group(1)}'}';
     });
@@ -206,7 +214,7 @@ class MarkdownDocGenerator {
 
   String _anchor(String s) => s
       .toLowerCase()
-      .replaceAll(RegExp(r'[^a-z0-9 -]'), '')
+      .replaceAll(_anchorStrip, '')
       .trim()
-      .replaceAll(RegExp(r'\s+'), '-');
+      .replaceAll(_anchorSpaces, '-');
 }

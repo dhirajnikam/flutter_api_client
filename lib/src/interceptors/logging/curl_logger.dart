@@ -2,9 +2,11 @@ import 'dart:convert';
 
 import '../../core/query.dart';
 import '../interceptor.dart';
+import 'redaction.dart';
 
 /// Logs each request as a ready-to-paste cURL command.
 class CurlLogger extends Interceptor {
+  /// Creates a curl logger with sensible secret-redaction defaults.
   CurlLogger({
     this.printer = print,
     this.redactHeaders = const {
@@ -31,12 +33,19 @@ class CurlLogger extends Interceptor {
     },
   });
 
+  /// Sink each curl command is written to. Defaults to `print`.
   final void Function(String) printer;
+
+  /// Header names whose values are replaced with `<redacted>`
+  /// (case-insensitive).
   final Set<String> redactHeaders;
+
+  /// JSON body keys whose values are replaced with `<redacted>`
+  /// (case- and separator-insensitive).
   final Set<String> redactBodyKeys;
 
   late final Set<String> _normalizedRedactBodyKeys = {
-    for (final key in redactBodyKeys) _normalizeKey(key),
+    for (final key in redactBodyKeys) normalizeBodyKey(key),
   };
 
   /// Case-insensitive header redaction set (see [PrettyLogger]). A mixed-case
@@ -61,7 +70,7 @@ class CurlLogger extends Interceptor {
     if (req.data != null && !req.isMultipart) {
       final body =
           req.data is String ? req.data as String : jsonEncode(req.data);
-      final redacted = _redactJsonBody(body);
+      final redacted = redactJsonBody(body, _normalizedRedactBodyKeys);
       buf.write(" --data '${redacted.replaceAll("'", r"\'")}'");
     }
     final url = buildUri(
@@ -71,45 +80,5 @@ class CurlLogger extends Interceptor {
     ).toString();
     buf.write(" '$url'");
     return buf.toString();
-  }
-
-  String _redactJsonBody(String body) {
-    try {
-      final decoded = jsonDecode(body);
-      return jsonEncode(_redactValue(decoded));
-    } catch (_) {
-      return body;
-    }
-  }
-
-  dynamic _redactValue(dynamic value) {
-    if (value is Map) {
-      final result = <String, dynamic>{};
-      for (final entry in value.entries) {
-        final key = entry.key.toString();
-        result[key] = _normalizedRedactBodyKeys.contains(_normalizeKey(key))
-            ? '<redacted>'
-            : _redactValue(entry.value);
-      }
-      return result;
-    }
-    if (value is List) {
-      return value.map(_redactValue).toList(growable: false);
-    }
-    return value;
-  }
-
-  String _normalizeKey(String key) {
-    final buffer = StringBuffer();
-    for (final code in key.codeUnits) {
-      if (code >= 48 && code <= 57) {
-        buffer.writeCharCode(code);
-      } else if (code >= 65 && code <= 90) {
-        buffer.writeCharCode(code + 32);
-      } else if (code >= 97 && code <= 122) {
-        buffer.writeCharCode(code);
-      }
-    }
-    return buffer.toString();
   }
 }

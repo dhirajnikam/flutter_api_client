@@ -12,14 +12,21 @@ import 'cache_store.dart';
 /// Supports `networkFirst`, `cacheFirst`, `staleWhileRevalidate` and
 /// `cacheOnly` strategies, plus ETag / If-None-Match revalidation.
 class CacheInterceptor extends Interceptor {
+  /// Creates a cache interceptor backed by [store].
   CacheInterceptor({
     required this.store,
     this.defaultPolicy,
     this.cacheMethods = const {'GET'},
   });
 
+  /// Backend that holds cached entries.
   final CacheStore store;
+
+  /// Policy used when a request does not override it via
+  /// [RequestOptions.cachePolicy]. `null` disables caching by default.
   final CachePolicy? defaultPolicy;
+
+  /// HTTP methods eligible for caching (compared case-insensitively).
   final Set<String> cacheMethods;
 
   static const _hitHeader = 'x-fac-cache-hit';
@@ -44,7 +51,7 @@ class CacheInterceptor extends Interceptor {
 
     switch (policy.mode) {
       case CacheMode.cacheOnly:
-        if (entry != null) return ResolveResult(_toResponse(entry, true));
+        if (entry != null) return ResolveResult(_toResponse(entry));
         return ResolveResult(
           AdapterResponse(
             statusCode: 504,
@@ -55,7 +62,7 @@ class CacheInterceptor extends Interceptor {
         );
       case CacheMode.cacheFirst:
         if (entry != null && entry.isFresh(policy.ttl)) {
-          return ResolveResult(_toResponse(entry, true));
+          return ResolveResult(_toResponse(entry));
         }
         if (entry?.etag != null && policy.useEtag) {
           req.headers['If-None-Match'] = entry!.etag!;
@@ -70,7 +77,7 @@ class CacheInterceptor extends Interceptor {
         if (entry != null) {
           req.headers[_revalHeader] = '1';
           if (entry.isFresh(policy.ttl)) {
-            return ResolveResult(_toResponse(entry, true));
+            return ResolveResult(_toResponse(entry));
           }
           if (entry.etag != null && policy.useEtag) {
             req.headers['If-None-Match'] = entry.etag!;
@@ -92,9 +99,9 @@ class CacheInterceptor extends Interceptor {
     if (res.bodyStream != null) return ResolveResult(res);
     final policy = _policyFor(req);
     if (policy == null) return ResolveResult(res);
-    final key = _key(req);
 
     if (res.statusCode == 304) {
+      final key = _key(req);
       final entry = await store.read(key);
       if (entry != null) {
         // A 304 means the origin confirmed the cached body is still current,
@@ -110,10 +117,11 @@ class CacheInterceptor extends Interceptor {
           etag: res.headers['etag'] ?? res.headers['ETag'] ?? entry.etag,
         );
         await store.write(refreshed);
-        return ResolveResult(_toResponse(refreshed, true));
+        return ResolveResult(_toResponse(refreshed));
       }
     }
     if (res.statusCode >= 200 && res.statusCode < 300) {
+      final key = _key(req);
       final etag = res.headers['etag'] ?? res.headers['ETag'];
       await store.write(
         CacheEntry(
@@ -158,14 +166,16 @@ class CacheInterceptor extends Interceptor {
 
     final entry = await store.read(_key(req));
     if (entry != null) {
-      return ResolveResult(_toResponse(entry, true));
+      return ResolveResult(_toResponse(entry));
     }
     return RejectResult(error);
   }
 
-  AdapterResponse _toResponse(CacheEntry e, bool hit) => AdapterResponse(
+  /// Builds a response served from a [CacheEntry], tagged with the cache-hit
+  /// marker header so downstream code can tell it came from the cache.
+  AdapterResponse _toResponse(CacheEntry e) => AdapterResponse(
         statusCode: e.statusCode,
-        headers: {...e.headers, _hitHeader: hit ? 'hit' : 'miss'},
+        headers: {...e.headers, _hitHeader: 'hit'},
         bodyBytes: e.bodyBytes,
       );
 

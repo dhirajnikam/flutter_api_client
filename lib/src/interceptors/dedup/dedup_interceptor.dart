@@ -8,11 +8,13 @@ import '../request_identity.dart';
 /// Coalesces identical in-flight GET requests so the network is only hit
 /// once. Other matching callers receive the same response.
 class DedupInterceptor extends Interceptor {
+  /// Creates a dedup interceptor coalescing the given [methods].
   DedupInterceptor({
     this.methods = const {'GET', 'HEAD'},
     this.waitTimeout = const Duration(seconds: 30),
   });
 
+  /// HTTP methods eligible for coalescing (compared case-insensitively).
   final Set<String> methods;
 
   /// Maximum time a follower waits for the in-flight leader before giving up
@@ -47,7 +49,17 @@ class DedupInterceptor extends Interceptor {
       // Any other error (the leader's ApiException) intentionally propagates:
       // a coalesced follower shares the leader's failure.
     }
-    _inFlight[key] = Completer<AdapterResponse>();
+    final completer = Completer<AdapterResponse>();
+    // Always attach a no-op observer to the leader's future. The completer is
+    // otherwise observed only by coalesced followers; a leader that errors or
+    // returns an unshareable stream while it has ZERO followers would complete
+    // with an error that has no listener, which Dart surfaces as an *unhandled
+    // asynchronous error* in the surrounding zone (crashing a
+    // `runZonedGuarded` app). This observer guarantees the error is always
+    // consumed; a real follower still receives it independently via its own
+    // `await existing.future`.
+    unawaited(completer.future.then((_) {}, onError: (_) {}));
+    _inFlight[key] = completer;
     req.headers[_keyHeader] = key;
     return ProceedResult(req);
   }

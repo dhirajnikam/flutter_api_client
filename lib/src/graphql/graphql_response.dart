@@ -4,6 +4,8 @@ import 'graphql_error.dart';
 /// Result of a GraphQL operation. Carries `data`, any `errors`, and the
 /// underlying HTTP status code.
 class GraphQLResponse<T> {
+  /// Creates a response. Prefer obtaining instances from `GraphQLClient`
+  /// rather than constructing them directly.
   GraphQLResponse({
     required this.statusCode,
     required this.data,
@@ -36,6 +38,9 @@ class GraphQLResponse<T> {
   /// Top-level `extensions` block (server-defined metadata).
   final Map<String, Object?>? extensions;
 
+  /// True when the response carried at least one GraphQL error.
   bool get hasErrors => errors.isNotEmpty;
+
+  /// True for a partial success: both [data] and [errors] are present.
   bool get isPartial => errors.isNotEmpty && data != null;
 }

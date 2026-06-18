@@ -10,26 +10,33 @@ class ResponseHandler implements ResponseHandlerInterface {
 
   @override
   String? handleResponse(AdapterResponse res) {
+    final isSuccess = res.statusCode >= 200 && res.statusCode < 300;
     try {
       final body = utf8.decode(res.bodyBytes);
 
-      if (body.trim().isEmpty) {
-        if (res.statusCode >= 200 && res.statusCode < 300) return null;
-        return 'Server returned an empty response';
+      // Trim once and reuse: the empty-check and the HTML/text classification
+      // both work off the trimmed body. `isHtmlOrTextResponse` trims its own
+      // argument too, but `trim()` is idempotent, so feeding it the already
+      // trimmed string is behaviour-identical while avoiding a second full
+      // scan of (potentially large) HTML error bodies on the error path.
+      final trimmed = body.trim();
+      if (trimmed.isEmpty) {
+        return isSuccess ? null : 'Server returned an empty response';
       }
-      if (isHtmlOrTextResponse(body)) {
+      if (isHtmlOrTextResponse(trimmed)) {
         return 'The server returned an invalid response. Please try again later.';
       }
       try {
         final decoded = jsonDecode(body);
-        if (res.statusCode >= 200 && res.statusCode < 300) return null;
+        if (isSuccess) return null;
         if (decoded is Map<String, dynamic>) {
           return _extractMessage(decoded['message'] ?? decoded['error']);
         }
         return decoded.toString();
       } on FormatException {
-        if (res.statusCode >= 200 && res.statusCode < 300) return null;
-        return 'Failed to parse the response. Please try again later.';
+        return isSuccess
+            ? null
+            : 'Failed to parse the response. Please try again later.';
       }
     } catch (_) {
       return 'Failed to process the response.';

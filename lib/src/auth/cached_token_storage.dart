@@ -4,7 +4,13 @@ import 'token_storage.dart';
 
 /// Wraps any [TokenStorage] with an in-memory cache so reads are sync-fast
 /// and writes return immediately (persistence happens in the background).
+///
+/// The cache is populated on the first read of each token and kept in sync on
+/// every write. Writes update the cache synchronously and forward to the
+/// delegate without awaiting it, so a write returns before the slower backend
+/// has finished persisting.
 class CachedTokenStorage implements TokenStorage {
+  /// Wraps `delegate`, caching its tokens in memory.
   CachedTokenStorage(this._delegate);
 
   final TokenStorage _delegate;
@@ -44,8 +50,12 @@ class CachedTokenStorage implements TokenStorage {
     unawaited(_delegate.setRefreshToken(token));
   }
 
-  /// Immediately updates cache, persists in background.
+  /// Fire-and-forget alias for [setAccessToken] when the caller does not need
+  /// the [Future]: updates the cache immediately and persists in the
+  /// background.
   void updateAccessToken(String? token) => setAccessToken(token);
+
+  /// Fire-and-forget alias for [setRefreshToken]; see [updateAccessToken].
   void updateRefreshToken(String? token) => setRefreshToken(token);
 
   /// Drops the in-memory cache. Next read will hit the delegate.

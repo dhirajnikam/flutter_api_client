@@ -6,6 +6,7 @@ import 'offline_queue.dart';
 
 /// Outcome of an [OfflineQueueReplayer.replay] pass.
 class OfflineReplayReport {
+  /// Creates a report; all counts default to zero.
   const OfflineReplayReport({
     this.succeeded = 0,
     this.reEnqueued = 0,
@@ -23,6 +24,7 @@ class OfflineReplayReport {
   /// `maxAttempts`.
   final int deadLettered;
 
+  /// Total requests processed in the pass.
   int get total => succeeded + reEnqueued + deadLettered;
 
   @override
@@ -53,18 +55,24 @@ class OfflineReplayReport {
 /// drop the requests already drained but not yet resent. A crash-safe
 /// non-destructive drain is a future improvement.
 class OfflineQueueReplayer {
+  /// Creates a replayer that drains [store] through [client].
   OfflineQueueReplayer({
     required this.store,
     required this.client,
     this.maxAttempts = 3,
   });
 
+  /// Queue to drain and replay from.
   final OfflineQueueStore store;
+
+  /// Live client each queued request is re-issued through.
   final ApiClient client;
 
   /// Maximum total replay attempts before a request is dead-lettered.
   final int maxAttempts;
 
+  /// Drains the queue and replays every pending request once, returning a
+  /// report of how each one fared.
   Future<OfflineReplayReport> replay() async {
     final pending = await store.drain();
     var succeeded = 0;

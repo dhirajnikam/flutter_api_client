@@ -468,7 +468,8 @@ void main() {
       await client.post<dynamic>(
         'x',
         {'a': 1},
-        options: const RequestOptions(headers: {'content-type': 'application/xml'}),
+        options:
+            const RequestOptions(headers: {'content-type': 'application/xml'}),
       );
       final sent = mock.received.single.headers;
       final ctKeys =

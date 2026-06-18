@@ -7,7 +7,8 @@ import 'package:http/http.dart' as http;
 
 void main() {
   group('DefaultHttpAdapter cancellation semantics', () {
-    test('owned per-request client cancellation surfaces CancelError', () async {
+    test('owned per-request client cancellation surfaces CancelError',
+        () async {
       final client = _ProbeClient();
       final adapter = DefaultHttpAdapter(clientFactory: () => client);
       final token = CancelToken();
@@ -53,67 +54,68 @@ void main() {
       expect(client.closeCalls, 0);
     });
 
-  group('DefaultHttpAdapter payload limits', () {
-    test('request body over limit throws PayloadTooLargeError before send',
-        () async {
-      final client = _ImmediateClient(const {'ok': true});
-      final adapter = DefaultHttpAdapter(client: client);
+    group('DefaultHttpAdapter payload limits', () {
+      test('request body over limit throws PayloadTooLargeError before send',
+          () async {
+        final client = _ImmediateClient(const {'ok': true});
+        final adapter = DefaultHttpAdapter(client: client);
 
-      final future = adapter.send(
-        AdapterRequest(
-          method: 'POST',
-          url: Uri.parse('https://example.com/upload'),
-          headers: const {'Content-Type': 'application/json'},
-          body: utf8.encode('{"name":"abcdef"}'),
-          timeout: const Duration(seconds: 5),
-          maxRequestBodyBytes: 4,
-        ),
-      );
+        final future = adapter.send(
+          AdapterRequest(
+            method: 'POST',
+            url: Uri.parse('https://example.com/upload'),
+            headers: const {'Content-Type': 'application/json'},
+            body: utf8.encode('{"name":"abcdef"}'),
+            timeout: const Duration(seconds: 5),
+            maxRequestBodyBytes: 4,
+          ),
+        );
 
-      await expectLater(future, throwsA(isA<PayloadTooLargeError>()));
-      expect(client.sendCalls, 0);
+        await expectLater(future, throwsA(isA<PayloadTooLargeError>()));
+        expect(client.sendCalls, 0);
+      });
+
+      test(
+          'response body over limit throws PayloadTooLargeError while streaming',
+          () async {
+        final client = _ImmediateClient(
+          const {'message': 'this is too large'},
+        );
+        final adapter = DefaultHttpAdapter(client: client);
+
+        final future = adapter.send(
+          AdapterRequest(
+            method: 'GET',
+            url: Uri.parse('https://example.com/large'),
+            headers: const {'Accept': 'application/json'},
+            timeout: const Duration(seconds: 5),
+            maxResponseBodyBytes: 4,
+          ),
+        );
+
+        await expectLater(future, throwsA(isA<PayloadTooLargeError>()));
+      });
+
+      test('under-limit payload succeeds', () async {
+        final client = _ImmediateClient(const {'ok': true});
+        final adapter = DefaultHttpAdapter(client: client);
+
+        final response = await adapter.send(
+          AdapterRequest(
+            method: 'POST',
+            url: Uri.parse('https://example.com/ok'),
+            headers: const {'Content-Type': 'application/json'},
+            body: utf8.encode('{"ok":true}'),
+            timeout: const Duration(seconds: 5),
+            maxRequestBodyBytes: 1024,
+            maxResponseBodyBytes: 1024,
+          ),
+        );
+
+        expect(response.statusCode, 200);
+        expect(client.sendCalls, 1);
+      });
     });
-
-    test('response body over limit throws PayloadTooLargeError while streaming',
-        () async {
-      final client = _ImmediateClient(
-        const {'message': 'this is too large'},
-      );
-      final adapter = DefaultHttpAdapter(client: client);
-
-      final future = adapter.send(
-        AdapterRequest(
-          method: 'GET',
-          url: Uri.parse('https://example.com/large'),
-          headers: const {'Accept': 'application/json'},
-          timeout: const Duration(seconds: 5),
-          maxResponseBodyBytes: 4,
-        ),
-      );
-
-      await expectLater(future, throwsA(isA<PayloadTooLargeError>()));
-    });
-
-    test('under-limit payload succeeds', () async {
-      final client = _ImmediateClient(const {'ok': true});
-      final adapter = DefaultHttpAdapter(client: client);
-
-      final response = await adapter.send(
-        AdapterRequest(
-          method: 'POST',
-          url: Uri.parse('https://example.com/ok'),
-          headers: const {'Content-Type': 'application/json'},
-          body: utf8.encode('{"ok":true}'),
-          timeout: const Duration(seconds: 5),
-          maxRequestBodyBytes: 1024,
-          maxResponseBodyBytes: 1024,
-        ),
-      );
-
-      expect(response.statusCode, 200);
-      expect(client.sendCalls, 1);
-    });
-  });
   });
 }
 

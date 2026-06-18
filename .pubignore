@@ -1,0 +1,28 @@
+# Files kept in the repository but excluded from the published pub.dev archive.
+#
+# NOTE: when a .pubignore exists, pub uses it INSTEAD of .gitignore for the
+# package archive, so this file must restate every exclusion that matters for
+# publishing (it does not inherit .gitignore). Keep it in sync with .gitignore.
+
+# Tooling / build output
+.dart_tool/
+build/
+**/build/
+coverage/
+pubspec.lock
+
+# IDE / editor
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# Claude Code agent context and coordination state (not part of the package)
+.teammates/
+MEMORY.md
+
+# Internal design notes, planning/spec docs, and release/review write-ups.
+# Consumer-facing docs live in README.md, CHANGELOG.md, dartdoc on the public
+# API, and the example/ app — none of doc/ is needed by package users.
+doc/

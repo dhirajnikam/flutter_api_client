@@ -140,13 +140,17 @@ void main() {
       expect(result.dataOrNull, 'Bob');
     });
 
-    test('returns Failure with ParseError on malformed JSON success body', () async {
+    test('returns Failure with ParseError on malformed JSON success body',
+        () async {
       final mock = MockAdapter()
-        ..onRequest('GET', RegExp(r'/broken-json$'), (_) async => AdapterResponse(
-              statusCode: 200,
-              headers: const {'content-type': 'application/json'},
-              bodyBytes: Uint8List.fromList(utf8.encode('{bad json')),
-            ));
+        ..onRequest(
+            'GET',
+            RegExp(r'/broken-json$'),
+            (_) async => AdapterResponse(
+                  statusCode: 200,
+                  headers: const {'content-type': 'application/json'},
+                  bodyBytes: Uint8List.fromList(utf8.encode('{bad json')),
+                ));
       final client = ApiClient(
         ApiClientConfig.test(baseUrl: 'https://example.com', adapter: mock),
       );
@@ -177,15 +181,19 @@ void main() {
       expect(result.statusCode, 200);
     });
 
-    test('returns Failure with ParseError on text body for JSON response', () async {
+    test('returns Failure with ParseError on text body for JSON response',
+        () async {
       final mock = MockAdapter()
-        ..onRequest('GET', RegExp(r'/html$'), (_) async => AdapterResponse(
-              statusCode: 200,
-              headers: const {'content-type': 'text/html'},
-              bodyBytes: Uint8List.fromList(
-                utf8.encode('<html><body>oops</body></html>'),
-              ),
-            ));
+        ..onRequest(
+            'GET',
+            RegExp(r'/html$'),
+            (_) async => AdapterResponse(
+                  statusCode: 200,
+                  headers: const {'content-type': 'text/html'},
+                  bodyBytes: Uint8List.fromList(
+                    utf8.encode('<html><body>oops</body></html>'),
+                  ),
+                ));
       final client = ApiClient(
         ApiClientConfig.test(baseUrl: 'https://example.com', adapter: mock),
       );
@@ -200,11 +208,14 @@ void main() {
 
     test('accepts valid short JSON scalar success bodies', () async {
       final mock = MockAdapter()
-        ..onRequest('GET', RegExp(r'/scalar$'), (_) async => AdapterResponse(
-              statusCode: 200,
-              headers: const {'content-type': 'application/json'},
-              bodyBytes: Uint8List.fromList(utf8.encode('true')),
-            ));
+        ..onRequest(
+            'GET',
+            RegExp(r'/scalar$'),
+            (_) async => AdapterResponse(
+                  statusCode: 200,
+                  headers: const {'content-type': 'application/json'},
+                  bodyBytes: Uint8List.fromList(utf8.encode('true')),
+                ));
       final client = ApiClient(
         ApiClientConfig.test(baseUrl: 'https://example.com', adapter: mock),
       );
@@ -215,9 +226,12 @@ void main() {
       expect(result.data, true);
     });
 
-    test('returns Failure with ParseError on invalid utf8 success body', () async {
+    test('returns Failure with ParseError on invalid utf8 success body',
+        () async {
       final mock = MockAdapter()
-        ..onRequest('GET', RegExp(r'/invalid-utf8-success$'),
+        ..onRequest(
+            'GET',
+            RegExp(r'/invalid-utf8-success$'),
             (_) async => AdapterResponse(
                   statusCode: 200,
                   headers: const {'content-type': 'application/json'},
@@ -235,13 +249,17 @@ void main() {
       expect(result.statusCode, 200);
     });
 
-    test('returns Success with null data on empty successful JSON body', () async {
+    test('returns Success with null data on empty successful JSON body',
+        () async {
       final mock = MockAdapter()
-        ..onRequest('GET', RegExp(r'/no-content$'), (_) async => AdapterResponse(
-              statusCode: 204,
-              headers: const {},
-              bodyBytes: Uint8List(0),
-            ));
+        ..onRequest(
+            'GET',
+            RegExp(r'/no-content$'),
+            (_) async => AdapterResponse(
+                  statusCode: 204,
+                  headers: const {},
+                  bodyBytes: Uint8List(0),
+                ));
       final client = ApiClient(
         ApiClientConfig.test(baseUrl: 'https://example.com', adapter: mock),
       );
@@ -255,11 +273,14 @@ void main() {
 
     test('keeps non-2xx malformed payloads as HttpError', () async {
       final mock = MockAdapter()
-        ..onRequest('GET', RegExp(r'/server-error$'), (_) async => AdapterResponse(
-              statusCode: 500,
-              headers: const {'content-type': 'application/json'},
-              bodyBytes: Uint8List.fromList(utf8.encode('{bad json')),
-            ));
+        ..onRequest(
+            'GET',
+            RegExp(r'/server-error$'),
+            (_) async => AdapterResponse(
+                  statusCode: 500,
+                  headers: const {'content-type': 'application/json'},
+                  bodyBytes: Uint8List.fromList(utf8.encode('{bad json')),
+                ));
       final client = ApiClient(
         ApiClientConfig.test(baseUrl: 'https://example.com', adapter: mock),
       );
@@ -274,7 +295,9 @@ void main() {
 
     test('keeps non-2xx invalid utf8 payloads as HttpError', () async {
       final mock = MockAdapter()
-        ..onRequest('GET', RegExp(r'/invalid-utf8-error$'),
+        ..onRequest(
+            'GET',
+            RegExp(r'/invalid-utf8-error$'),
             (_) async => AdapterResponse(
                   statusCode: 500,
                   headers: const {'content-type': 'application/json'},

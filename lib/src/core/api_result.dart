@@ -26,7 +26,10 @@ import 'api_exception.dart';
 sealed class ApiResult<T> {
   const ApiResult();
 
+  /// True when this is a [Success].
   bool get isSuccess => this is Success<T>;
+
+  /// True when this is a [Failure].
   bool get isFailure => this is Failure<T>;
 
   /// The decoded response body. Non-null on [Success], null on [Failure].

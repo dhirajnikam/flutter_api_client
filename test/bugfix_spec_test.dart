@@ -96,8 +96,8 @@ void main() {
       final probe = _bodyJson(adapter.received[0]) as Map;
       expect(probe.containsKey('query'), isFalse,
           reason: 'probe must send hash only, never the document');
-      final probeHash = ((probe['extensions'] as Map)['persistedQuery']
-          as Map)['sha256Hash'];
+      final probeHash =
+          ((probe['extensions'] as Map)['persistedQuery'] as Map)['sha256Hash'];
 
       final fallback = _bodyJson(adapter.received[1]) as Map;
       expect(fallback['query'], document,

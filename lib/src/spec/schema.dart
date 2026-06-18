@@ -1,5 +1,10 @@
-/// Light JSON Schema-like model used by [ApiSpec].
+/// Light JSON Schema-like model used by `ApiSpec`.
+///
+/// Prefer the typed factories ([string], [integer], [number], [boolean],
+/// [object], [array]) over the raw constructor — they keep [type] consistent
+/// with the constraints that apply to it.
 class Schema {
+  /// Creates a schema of the given [type]. Prefer the typed factories.
   const Schema({
     required this.type,
     this.format,
@@ -15,19 +20,45 @@ class Schema {
     this.properties,
   });
 
+  /// JSON Schema type: `string`, `integer`, `number`, `boolean`, `object`, or
+  /// `array`.
   final String type;
+
+  /// Optional format hint (e.g. `email`, `date-time`).
   final String? format;
+
+  /// Whether the value is required. For object properties, drives the
+  /// emitted `required` list.
   final bool required;
+
+  /// Minimum string length (string type only).
   final int? minLength;
+
+  /// Maximum string length (string type only).
   final int? maxLength;
+
+  /// Minimum numeric value (integer/number types only).
   final num? minimum;
+
+  /// Maximum numeric value (integer/number types only).
   final num? maximum;
+
+  /// Allowed values, if the schema is an enumeration.
   final List<Object?>? enumValues;
+
+  /// Example value emitted into docs and OpenAPI.
   final Object? example;
+
+  /// Human-readable description.
   final String? description;
+
+  /// Element schema for `array` types.
   final Schema? items;
+
+  /// Property schemas for `object` types, keyed by property name.
   final Map<String, Schema>? properties;
 
+  /// A `string` schema with optional string constraints.
   static Schema string({
     String? format,
     bool required = false,
@@ -48,6 +79,7 @@ class Schema {
         description: description,
       );
 
+  /// An `integer` schema with optional numeric bounds.
   static Schema integer({
     bool required = false,
     int? minimum,
@@ -64,6 +96,7 @@ class Schema {
         description: description,
       );
 
+  /// A `number` schema with optional numeric bounds.
   static Schema number({
     bool required = false,
     num? minimum,
@@ -80,6 +113,7 @@ class Schema {
         description: description,
       );
 
+  /// A `boolean` schema.
   static Schema boolean({
     bool required = false,
     bool? example,
@@ -92,6 +126,8 @@ class Schema {
         description: description,
       );
 
+  /// An `object` schema with the given [properties]. A property's own
+  /// `required` flag drives the emitted `required` list.
   static Schema object(
     Map<String, Schema> properties, {
     bool required = false,
@@ -104,6 +140,7 @@ class Schema {
         description: description,
       );
 
+  /// An `array` schema whose elements match [items].
   static Schema array(
     Schema items, {
     bool required = false,
@@ -116,6 +153,7 @@ class Schema {
         description: description,
       );
 
+  /// Converts this schema to its OpenAPI 3.1 schema-object representation.
   Map<String, Object?> toOpenApi() {
     final out = <String, Object?>{'type': type};
     if (format != null) out['format'] = format;

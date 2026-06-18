@@ -2,6 +2,8 @@ import '../core/api_exception.dart';
 import '../http/http_adapter.dart';
 import 'interceptor.dart';
 
+/// The terminal network call the chain wraps: sends [req] and yields a
+/// response (or throws an [ApiException]).
 typedef Transport = Future<AdapterResponse> Function(InterceptedRequest req);
 
 /// Coordinates the ordered run of [Interceptor]s around the transport call.
@@ -15,10 +17,18 @@ typedef Transport = Future<AdapterResponse> Function(InterceptedRequest req);
 ///   4. onError (bottom → top) may recover with a response, or return a
 ///      [ProceedResult] to retry the whole chain with a fresh request.
 class InterceptorChain {
+  /// Wraps [interceptors], run in list order on the request side and in
+  /// reverse on the response/error side.
   InterceptorChain(this.interceptors);
 
+  /// The interceptors this chain coordinates.
   final List<Interceptor> interceptors;
 
+  /// Runs [request] through the chain and [transport], returning the final
+  /// response or throwing the final [ApiException].
+  ///
+  /// [retryDepth] tracks chain restarts (from a [ProceedResult] on the
+  /// response/error side) and is bounded to prevent infinite retry loops.
   Future<AdapterResponse> run({
     required InterceptedRequest request,
     required Transport transport,

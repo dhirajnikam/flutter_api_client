@@ -6,6 +6,7 @@ import '../../http/http_adapter.dart';
 
 /// Decides whether and when to retry a failed request.
 class RetryPolicy implements RetryPolicyInterface {
+  /// Creates a retry policy. See the field docs for each parameter's meaning.
   RetryPolicy({
     this.maxAttempts = 3,
     this.baseDelay = const Duration(milliseconds: 200),
@@ -17,13 +18,28 @@ class RetryPolicy implements RetryPolicyInterface {
     this.safeMethods = const {'GET', 'HEAD', 'OPTIONS'},
   });
 
+  /// Maximum number of attempts (the initial try counts as attempt 1).
   final int maxAttempts;
+
+  /// Base delay for exponential backoff (doubled each attempt).
   final Duration baseDelay;
+
+  /// Upper bound on any single retry delay, including server `Retry-After`.
   final Duration maxDelay;
+
+  /// Response status codes that trigger a retry.
   final Set<int> retryOnStatus;
+
+  /// Predicate deciding whether a thrown [ApiException] is retryable.
   final bool Function(ApiException error) retryOnException;
+
+  /// Whether to randomize delays (full jitter) to decorrelate retries.
   final bool useJitter;
+
+  /// Whether to honor a server `Retry-After` header (capped at [maxDelay]).
   final bool respectRetryAfter;
+
+  /// Methods considered idempotent and therefore safe to retry.
   final Set<String> safeMethods;
 
   /// Shared RNG. A fresh `Random()` per call is clock-seeded, so many clients
@@ -47,6 +63,7 @@ class RetryPolicy implements RetryPolicyInterface {
         safeMethods: safeMethods ?? const {'GET', 'HEAD', 'OPTIONS'},
       );
 
+  /// Whether a response with this status should be retried at [attempt].
   bool shouldRetryResponse(
     AdapterResponse res,
     int attempt, {
@@ -57,6 +74,7 @@ class RetryPolicy implements RetryPolicyInterface {
     return retryOnStatus.contains(res.statusCode);
   }
 
+  /// Whether a thrown [ApiException] should be retried at [attempt].
   bool shouldRetryError(ApiException err, int attempt,
       {String method = 'GET'}) {
     if (attempt >= maxAttempts) return false;
@@ -64,6 +82,9 @@ class RetryPolicy implements RetryPolicyInterface {
     return retryOnException(err);
   }
 
+  /// Delay before the next attempt: honors `Retry-After` from [res] when
+  /// enabled, otherwise exponential backoff with optional jitter, capped at
+  /// [maxDelay].
   Duration delayFor(int attempt, AdapterResponse? res) {
     if (respectRetryAfter && res != null) {
       final retryAfter = _parseRetryAfter(res);

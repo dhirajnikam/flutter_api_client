@@ -43,6 +43,13 @@ class GraphQLClient {
   /// match a server-registered document. Override only for a custom registry.
   final String Function(String document)? hashQuery;
 
+  /// Executes a GraphQL query [document].
+  ///
+  /// Pass [variables] for the operation, [operationName] when the document
+  /// declares more than one operation, and a [decoder] to map the top-level
+  /// `data` field to [T] (without one, `data` is cast to [T] directly).
+  /// Always completes with a [GraphQLResponse]; transport and decode failures
+  /// are reported via [GraphQLResponse.networkError] rather than thrown.
   Future<GraphQLResponse<T>> query<T>(
     String document, {
     Map<String, dynamic>? variables,
@@ -60,6 +67,11 @@ class GraphQLClient {
         includeToken: includeToken,
       );
 
+  /// Executes a GraphQL mutation [document].
+  ///
+  /// Behaves exactly like [query] — same parameters, same response contract —
+  /// and exists as a separate method only to make call sites read as
+  /// mutations.
   Future<GraphQLResponse<T>> mutation<T>(
     String document, {
     Map<String, dynamic>? variables,

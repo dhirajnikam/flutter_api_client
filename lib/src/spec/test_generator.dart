@@ -5,16 +5,30 @@ import 'api_spec.dart';
 /// Call [generate] to get the full Dart source as a string.
 /// Mirrors [MarkdownDocGenerator] and [OpenApiGenerator] in shape.
 class TestGenerator {
+  /// Creates a generator for [spec].
+  ///
+  /// [specImport] is the import added to the generated test so it can resolve
+  /// the spec variable; [specSymbol] is that variable's identifier.
   TestGenerator(
     this.spec, {
     this.specImport,
     this.specSymbol = 'spec',
   });
 
+  /// The spec the generated tests exercise.
   final ApiSpec spec;
+
+  /// Import directive target for the file declaring the spec, if any.
   final String? specImport;
+
+  /// Identifier of the spec variable referenced by the generated tests.
   final String specSymbol;
 
+  // Fixed patterns reused across every endpoint — compiled once.
+  static final RegExp _placeholder = RegExp(r'\{[^}]+\}');
+  static final RegExp _leadingSlash = RegExp(r'^/');
+
+  /// Renders a complete, runnable `*_test.dart` source as a string.
   String generate() {
     final buf = StringBuffer();
     buf.writeln('// GENERATED CODE - DO NOT MODIFY BY HAND');
@@ -49,8 +63,8 @@ class TestGenerator {
     final baseUrl = spec.baseUrl;
     final methodKey = '${ep.method} ${ep.path}';
     final concretePath = ep.path
-        .replaceAllMapped(RegExp(r'\{[^}]+\}'), (_) => '1')
-        .replaceFirst(RegExp(r'^/'), '');
+        .replaceAllMapped(_placeholder, (_) => '1')
+        .replaceFirst(_leadingSlash, '');
 
     // Happy path
     buf.writeln("    test('${ep.method} ${ep.path} — happy path', () async {");

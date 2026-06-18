@@ -1,7 +1,12 @@
 import 'token_storage.dart';
 
-/// In-memory token storage for tests or simple use cases.
+/// In-memory [TokenStorage] for tests or simple use cases.
+///
+/// Tokens live only for the lifetime of this instance; nothing is persisted
+/// across restarts.
 class MemoryTokenStorage implements TokenStorage {
+  /// Creates a store optionally seeded with an [accessToken] and
+  /// [refreshToken].
   MemoryTokenStorage({String? accessToken, String? refreshToken})
       : _accessToken = accessToken,
         _refreshToken = refreshToken;

@@ -336,7 +336,8 @@ void main() {
       // chance to settle.
       await Future<void>.delayed(Duration.zero);
       expect(client.closeCalls, 1,
-          reason: 'owned client must close even when the body is never consumed');
+          reason:
+              'owned client must close even when the body is never consumed');
     });
   });
 

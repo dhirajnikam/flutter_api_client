@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'http_adapter.dart';
 
+/// Builds a canned response for a matched request.
 typedef MockResponder = Future<AdapterResponse> Function(AdapterRequest req);
 
 /// Route matcher used by [MockAdapter].
@@ -13,10 +14,16 @@ class MockRoute {
     required this.responder,
   });
 
+  /// HTTP method this route matches (case-insensitive).
   final String method;
+
+  /// Pattern matched against the request URL path.
   final RegExp path;
+
+  /// Produces the response when this route matches.
   final MockResponder responder;
 
+  /// True if [req] matches this route's method and path.
   bool matches(AdapterRequest req) {
     if (req.method.toUpperCase() != method.toUpperCase()) return false;
     return path.hasMatch(req.url.path);
@@ -28,12 +35,19 @@ class MockAdapter implements HttpAdapter {
   MockAdapter({List<MockRoute>? routes, this.latency})
       : routes = routes ?? <MockRoute>[];
 
+  /// Registered routes, tried in order on each request.
   final List<MockRoute> routes;
+
+  /// Artificial delay applied to every response.
   final Duration? latency;
 
-  /// Last requests captured, useful for assertions.
+  /// Requests captured in order, useful for assertions.
   final List<AdapterRequest> received = [];
 
+  /// Registers a route returning a fixed [statusCode] and [body].
+  ///
+  /// A `String` [pathPattern] matches the full path exactly; pass a [RegExp]
+  /// for partial or pattern matching.
   void on(
     String method,
     Pattern pathPattern, {
@@ -61,6 +75,7 @@ class MockAdapter implements HttpAdapter {
     );
   }
 
+  /// Registers a route whose response is built dynamically by [responder].
   void onRequest(String method, Pattern pathPattern, MockResponder responder) {
     final pattern = pathPattern is RegExp
         ? pathPattern

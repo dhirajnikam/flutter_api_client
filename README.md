@@ -566,6 +566,14 @@ ApiClientConfig(
 Pass interceptors to `ApiClientConfig.interceptors`. They run in
 **list order on request** and **reverse list order on response/error**.
 
+> **Recommended ordering:** place `DedupInterceptor` **before** `RetryInterceptor`
+> in the list (e.g. `[DedupInterceptor(), RetryInterceptor(), CacheInterceptor(...)]`
+> — auth is prepended automatically). Either order is *correct*, but with dedup
+> ahead of retry the dedup window spans the whole retry sequence, so followers
+> coalesce onto the retried result (fewer network hits). With retry ahead of
+> dedup, followers are released on the pre-retry failure and re-issue
+> independently (still correct, just more network hits).
+
 Each interceptor overrides one or more of:
 
 ```dart

@@ -28,9 +28,22 @@ class DefaultHttpAdapter implements HttpAdapter, StreamingHttpAdapter {
     final ownsClient = _sharedClient == null;
     final client = _sharedClient ?? _clientFactory();
     var cancelled = false;
+    // Close the owned client exactly once. The cancel listener closes it to
+    // interrupt an in-flight send/read promptly, and the `finally` closes it on
+    // every normal/error exit; without this guard a cancelled request closed
+    // the owned client twice (listener + finally). http.Client.close() is
+    // idempotent so it never crashed, but a double-close is still a defect and
+    // it broke the "closed exactly once" invariant the streaming path upholds.
+    var closed = false;
+    void closeOwned() {
+      if (closed || !ownsClient) return;
+      closed = true;
+      client.close();
+    }
+
     final removeListener = request.cancelToken?.addListener((err) {
       cancelled = true;
-      if (ownsClient) client.close();
+      closeOwned();
     });
 
     try {
@@ -94,7 +107,7 @@ class DefaultHttpAdapter implements HttpAdapter, StreamingHttpAdapter {
       throw NetworkError(e.toString(), cause: e, stackTrace: st);
     } finally {
       removeListener?.call();
-      if (ownsClient) client.close();
+      closeOwned();
     }
   }
 

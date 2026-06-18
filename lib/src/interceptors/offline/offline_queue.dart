@@ -5,13 +5,23 @@ import 'package:hive/hive.dart';
 /// Persists pending mutations while offline. Pluggable so users wire their
 /// own storage backend.
 abstract class OfflineQueueStore {
+  /// Appends [request] to the queue.
   Future<void> enqueue(QueuedRequest request);
+
+  /// Removes and returns all pending requests in replay order
+  /// (oldest [QueuedRequest.createdAt] first).
   Future<List<QueuedRequest>> drain();
+
+  /// Removes the request with the given [id], if present.
   Future<void> remove(String id);
+
+  /// Number of pending requests.
   Future<int> get length;
 }
 
+/// A request captured while offline, pending replay.
 class QueuedRequest {
+  /// Creates a queued request record.
   QueuedRequest({
     required this.id,
     required this.method,
@@ -22,17 +32,29 @@ class QueuedRequest {
     this.attempts = 0,
   });
 
+  /// Unique id within the queue; also the storage key for keyed stores.
   final String id;
+
+  /// HTTP method to replay with.
   final String method;
+
+  /// Target endpoint to replay against.
   final String endpoint;
+
+  /// Headers to send (the `Authorization` header is intentionally not stored).
   final Map<String, String> headers;
+
+  /// Request body, if any.
   final Object? body;
+
+  /// When the request was first queued; replays happen in this order.
   final DateTime createdAt;
 
   /// Number of replay attempts already made. Used to dead-letter poison
   /// requests that keep failing instead of replaying them forever.
   final int attempts;
 
+  /// Returns a copy with [attempts] incremented by one.
   QueuedRequest withAttempt() => QueuedRequest(
         id: id,
         method: method,
@@ -43,6 +65,7 @@ class QueuedRequest {
         attempts: attempts + 1,
       );
 
+  /// JSON representation for persistent stores.
   Map<String, Object?> toJson() => {
         'id': id,
         'method': method,
@@ -53,6 +76,7 @@ class QueuedRequest {
         'attempts': attempts,
       };
 
+  /// Strict parse; throws [FormatException] on a malformed record.
   factory QueuedRequest.fromJson(Map<String, Object?> json) {
     final parsed = tryFromJson(json);
     if (parsed == null) {
@@ -136,8 +160,10 @@ class InMemoryOfflineQueueStore implements OfflineQueueStore {
 
 /// Persistent Hive-backed queue store.
 class HiveOfflineQueueStore implements OfflineQueueStore {
+  /// Creates a store backed by an open Hive [box] of JSON strings.
   HiveOfflineQueueStore(this.box);
 
+  /// The Hive box holding one JSON-encoded [QueuedRequest] per id.
   final Box<String> box;
 
   @override

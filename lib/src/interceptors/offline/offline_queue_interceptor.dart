@@ -5,14 +5,22 @@ import 'offline_queue.dart';
 
 /// Detects network errors on mutating requests and stores them for replay.
 class OfflineQueueInterceptor extends Interceptor {
+  /// Creates an interceptor that queues failed mutations into [store].
   OfflineQueueInterceptor({
     required this.store,
     this.methods = const {'POST', 'PUT', 'PATCH', 'DELETE'},
     this.isOnline,
   });
 
+  /// Backend the failed mutations are queued into.
   final OfflineQueueStore store;
+
+  /// Mutating methods eligible for queuing (compared case-insensitively).
   final Set<String> methods;
+
+  /// Optional connectivity probe. When it reports online, errors are not
+  /// queued (they are genuine failures, not offline conditions). When `null`,
+  /// the request is always treated as offline on a network/timeout error.
   final Future<bool> Function()? isOnline;
 
   /// Monotonic per-instance sequence appended to each id. Two mutations to the

@@ -113,8 +113,7 @@ void main() {
           interceptors: [
             CacheInterceptor(
               store: store,
-              defaultPolicy:
-                  CachePolicy.cacheFirst(),
+              defaultPolicy: CachePolicy.cacheFirst(),
             ),
           ],
         ),
@@ -162,8 +161,7 @@ void main() {
           interceptors: [
             CacheInterceptor(
               store: store,
-              defaultPolicy:
-                  CachePolicy.cacheFirst(),
+              defaultPolicy: CachePolicy.cacheFirst(),
             ),
           ],
         ),

@@ -34,19 +34,46 @@ class ApiClientConfig {
     this.adapter,
   });
 
+  /// Base URL every endpoint is resolved against.
   final String baseUrl;
+
+  /// Token store used by the built-in auth interceptor. Mutually exclusive
+  /// with [getAccessToken].
   final TokenStorage? tokenStorage;
+
+  /// Supplies the access token on demand. Mutually exclusive with
+  /// [tokenStorage].
   final Future<String?> Function()? getAccessToken;
+
+  /// Called on a 401 to refresh credentials; returns true if it succeeded.
   final Future<bool> Function()? refreshToken;
+
+  /// Headers added to every request.
   final Map<String, String> extraHeaders;
+
+  /// Default per-request timeout.
   final Duration connectTimeout;
+
+  /// Authorization scheme prefix (e.g. `Bearer`). Empty sends a bare token.
   final String authScheme;
+
+  /// Rejects requests whose encoded body exceeds this many bytes.
   final int? maxRequestBodyBytes;
+
+  /// Rejects responses whose buffered body exceeds this many bytes.
   final int? maxResponseBodyBytes;
+
+  /// Extracts error messages from non-2xx responses. Defaults to
+  /// [ResponseHandler].
   final ResponseHandlerInterface? responseHandler;
+
+  /// Interceptors run in order, after the auto-configured auth interceptor.
   final List<Interceptor> interceptors;
+
+  /// Transport. Defaults to [DefaultHttpAdapter] when omitted.
   final HttpAdapter? adapter;
 
+  /// Config whose auth token comes from a [getAccessToken] callback.
   factory ApiClientConfig.withToken({
     required String baseUrl,
     required Future<String?> Function() getAccessToken,
@@ -70,6 +97,7 @@ class ApiClientConfig {
         interceptors: interceptors,
       );
 
+  /// Config whose auth token is read from (and refreshed into) [tokenStorage].
   factory ApiClientConfig.withStorage({
     required String baseUrl,
     required TokenStorage tokenStorage,
@@ -93,6 +121,8 @@ class ApiClientConfig {
         interceptors: interceptors,
       );
 
+  /// Config with no auth, wired to an injected [adapter] (e.g. a mock) for
+  /// tests.
   factory ApiClientConfig.test({
     required String baseUrl,
     required HttpAdapter adapter,
@@ -110,7 +140,12 @@ class ApiClientConfig {
 }
 
 /// Public API of an HTTP client.
+///
+/// Every method returns an [ApiResult]; transport, HTTP, and decode failures
+/// are surfaced as a [Failure], never thrown. Pass a [decoder] to turn the
+/// JSON body into `T`; without one, `T` must match the raw decoded shape.
 abstract class ApiClientInterface {
+  /// Sends a GET to [endpoint].
   Future<ApiResult<T>> get<T>(
     String endpoint, {
     bool includeToken = true,
@@ -118,6 +153,7 @@ abstract class ApiClientInterface {
     T Function(Object json)? decoder,
   });
 
+  /// Sends a POST with [data] as the body, or as multipart when [isMultipart].
   Future<ApiResult<T>> post<T>(
     String endpoint,
     dynamic data, {
@@ -127,6 +163,7 @@ abstract class ApiClientInterface {
     T Function(Object json)? decoder,
   });
 
+  /// Sends a PUT with [data] as the body, or as multipart when [isMultipart].
   Future<ApiResult<T>> put<T>(
     String endpoint,
     dynamic data, {
@@ -136,6 +173,7 @@ abstract class ApiClientInterface {
     T Function(Object json)? decoder,
   });
 
+  /// Sends a PATCH with [data] as the body, or as multipart when [isMultipart].
   Future<ApiResult<T>> patch<T>(
     String endpoint,
     dynamic data, {
@@ -145,6 +183,7 @@ abstract class ApiClientInterface {
     T Function(Object json)? decoder,
   });
 
+  /// Sends a DELETE to [endpoint].
   Future<ApiResult<T>> delete<T>(
     String endpoint, {
     bool includeToken = true,
@@ -192,6 +231,7 @@ class ApiClient implements ApiClientInterface {
     return const [];
   }
 
+  /// The transport this client sends through.
   HttpAdapter get adapter => _adapter;
 
   Future<ApiResult<T>> _request<T>(
@@ -469,7 +509,8 @@ class ApiClient implements ApiClientInterface {
     // default (`true`) silently override an explicit `includeToken: false`
     // method argument, leaking the Authorization header onto a request the
     // caller had explicitly excluded.
-    final effectiveIncludeToken = includeToken && (options?.includeToken ?? true);
+    final effectiveIncludeToken =
+        includeToken && (options?.includeToken ?? true);
     final effectiveTimeout = options?.timeout ?? _config.connectTimeout;
     final effectiveBaseUrl = options?.baseUrlOverride ?? _config.baseUrl;
     return (options ?? const RequestOptions()).copyWith(
@@ -540,11 +581,28 @@ class ApiClient implements ApiClientInterface {
       case ResponseType.bytes:
         return res.bodyBytes;
       case ResponseType.plainText:
-        return utf8.decode(res.bodyBytes);
+        return _decodePlainText(res.bodyBytes);
       case ResponseType.stream:
         return res.bodyBytes;
       case ResponseType.json:
         return _decodeJsonSuccessBody(res, decoder);
+    }
+  }
+
+  /// Decodes a plain-text body, surfacing an invalid UTF-8 sequence as a typed
+  /// [ParseError] rather than letting the raw `FormatException` escape and be
+  /// reclassified as an opaque `UnknownError`. Mirrors the JSON path's typing so
+  /// "a decode failure is a ParseError" holds for every response mode. An empty
+  /// body decodes to the empty string (unchanged).
+  String _decodePlainText(List<int> bodyBytes) {
+    try {
+      return utf8.decode(bodyBytes);
+    } on FormatException catch (e, st) {
+      throw ParseError(
+        'Failed to decode response body as UTF-8.',
+        cause: e,
+        stackTrace: st,
+      );
     }
   }
 
@@ -578,25 +636,30 @@ class ApiClient implements ApiClientInterface {
       case ResponseType.bytes:
         return res.bodyBytes;
       case ResponseType.plainText:
-        return utf8.decode(res.bodyBytes);
+        // On the error path the body is only informational (the failure is
+        // already represented by the HttpError), so a malformed body degrades
+        // to null instead of throwing — never an escaping FormatException.
+        try {
+          return utf8.decode(res.bodyBytes);
+        } on FormatException {
+          return null;
+        }
       case ResponseType.stream:
         return res.bodyBytes;
       case ResponseType.json:
         final raw = _tryDecodeUtf8(res.bodyBytes, throwOnFailure: false);
         if (raw == null) return null;
         final parsed = _tryParseJson(raw, throwOnFailure: false);
-        if (parsed != null) {
-          if (decoder != null) {
-            try {
-              return decoder(parsed);
-            } catch (_) {
-              return parsed;
-            }
-          }
+        // A body that is missing, malformed, or HTML is only informational on
+        // the error path (the failure is already the HttpError), so it degrades
+        // to null rather than throwing.
+        if (parsed == null) return null;
+        if (decoder == null) return parsed;
+        try {
+          return decoder(parsed);
+        } catch (_) {
           return parsed;
         }
-        if (_responseHandler.isHtmlOrTextResponse(raw)) return null;
-        return null;
     }
   }
 
@@ -648,6 +711,8 @@ class ApiClient implements ApiClientInterface {
     }
   }
 
+  /// Releases the underlying adapter's resources. Call when done with the
+  /// client.
   void close() => _adapter.close();
 }
 
