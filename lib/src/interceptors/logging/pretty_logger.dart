@@ -3,10 +3,13 @@ import 'dart:convert';
 import '../../core/api_exception.dart';
 import '../../http/http_adapter.dart';
 import '../interceptor.dart';
+import 'redaction.dart';
 
 /// Pretty, line-broken request/response logger with optional ANSI colors
 /// and header redaction.
 class PrettyLogger extends Interceptor {
+  /// Creates a pretty logger. All knobs have safe defaults; secrets in common
+  /// header and body fields are redacted out of the box.
   PrettyLogger({
     this.printer = print,
     this.redactHeaders = const {
@@ -36,11 +39,24 @@ class PrettyLogger extends Interceptor {
     this.useColors = true,
   });
 
+  /// Sink each formatted block is written to. Defaults to `print`.
   final void Function(String) printer;
+
+  /// Header names whose values are replaced with `<redacted>`
+  /// (case-insensitive).
   final Set<String> redactHeaders;
+
+  /// JSON body keys whose values are replaced with `<redacted>`
+  /// (case- and separator-insensitive).
   final Set<String> redactBodyKeys;
+
+  /// Whether to log request bodies.
   final bool requestBody;
+
+  /// Whether to log response bodies.
   final bool responseBody;
+
+  /// Whether to wrap output in ANSI color codes.
   final bool useColors;
 
   static const _reset = '\u001B[0m';
@@ -50,7 +66,15 @@ class PrettyLogger extends Interceptor {
   static const _grey = '\u001B[90m';
 
   late final Set<String> _normalizedRedactBodyKeys = {
-    for (final key in redactBodyKeys) _normalizeKey(key),
+    for (final key in redactBodyKeys) normalizeBodyKey(key),
+  };
+
+  /// Header names are matched case-insensitively. A caller that passes
+  /// `{'Authorization'}` (mixed case) must still get redaction — otherwise the
+  /// secret leaks into logs. Normalize the set once instead of trusting the
+  /// caller to lowercase it.
+  late final Set<String> _normalizedRedactHeaders = {
+    for (final name in redactHeaders) name.toLowerCase(),
   };
 
   String _c(String code, String s) => useColors ? '$code$s$_reset' : s;
@@ -101,50 +125,15 @@ class PrettyLogger extends Interceptor {
   }
 
   String _redactHeaderValue(String name, String value) =>
-      redactHeaders.contains(name.toLowerCase()) ? '<redacted>' : value;
+      _normalizedRedactHeaders.contains(name.toLowerCase())
+          ? '<redacted>'
+          : value;
 
   /// Redacts values for keys in [redactBodyKeys] from a JSON body string.
   /// Returns the original [body] if it isn't valid JSON.
   String _redactJsonBody(String body) {
     if (_normalizedRedactBodyKeys.isEmpty) return body;
-    try {
-      final decoded = jsonDecode(body);
-      final redacted = _redactValue(decoded);
-      return jsonEncode(redacted);
-    } catch (_) {
-      return body;
-    }
-  }
-
-  dynamic _redactValue(dynamic value) {
-    if (value is Map) {
-      final result = <String, dynamic>{};
-      for (final entry in value.entries) {
-        final key = entry.key.toString();
-        result[key] = _normalizedRedactBodyKeys.contains(_normalizeKey(key))
-            ? '<redacted>'
-            : _redactValue(entry.value);
-      }
-      return result;
-    }
-    if (value is List) {
-      return value.map(_redactValue).toList(growable: false);
-    }
-    return value;
-  }
-
-  String _normalizeKey(String key) {
-    final buffer = StringBuffer();
-    for (final code in key.codeUnits) {
-      if (code >= 48 && code <= 57) {
-        buffer.writeCharCode(code);
-      } else if (code >= 65 && code <= 90) {
-        buffer.writeCharCode(code + 32);
-      } else if (code >= 97 && code <= 122) {
-        buffer.writeCharCode(code);
-      }
-    }
-    return buffer.toString();
+    return redactJsonBody(body, _normalizedRedactBodyKeys);
   }
 
   @override

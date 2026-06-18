@@ -4,6 +4,8 @@ import 'package:source_gen/source_gen.dart';
 import 'cli_helpers.dart';
 import 'api_spec_entry.dart';
 
+/// build_runner entry point: emits a `$generatedSpec` getter for the
+/// top-level variable annotated with `@ApiSpecEntry`.
 Builder apiSpecBuilder(BuilderOptions options) =>
     SharedPartBuilder([_ApiSpecGenerator()], 'api_spec_entry');
 

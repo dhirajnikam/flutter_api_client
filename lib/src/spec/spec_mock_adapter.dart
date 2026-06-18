@@ -13,6 +13,7 @@ import 'graphql_spec.dart';
 /// default; pass [statusOverrides] to make endpoints return errors during
 /// tests.
 class SpecMockAdapter implements HttpAdapter {
+  /// Creates a mock adapter that serves responses declared in [spec].
   SpecMockAdapter(
     this.spec, {
     this.latency,
@@ -20,14 +21,24 @@ class SpecMockAdapter implements HttpAdapter {
     this.validateRequests = true,
   });
 
+  /// The spec whose endpoints and responses are served.
   final ApiSpec spec;
+
+  /// Artificial delay applied to every response, if set.
   final Duration? latency;
 
-  /// `{ 'POST /auth/login': 401 }` forces an error response for that endpoint.
+  /// Forces a specific status for an endpoint, keyed by `'METHOD /path'` for
+  /// HTTP and `'GQL OperationName'` for GraphQL — e.g.
+  /// `{ 'POST /auth/login': 401 }`.
   final Map<String, int> statusOverrides;
 
+  /// Whether to validate request bodies and GraphQL variables against their
+  /// declared schemas, returning `422` (HTTP) or a `BAD_USER_INPUT` error
+  /// (GraphQL) on failure.
   final bool validateRequests;
 
+  /// Every request this adapter has received, in order — useful for
+  /// assertions in tests.
   final List<AdapterRequest> received = [];
 
   @override
@@ -125,12 +136,18 @@ class SpecMockAdapter implements HttpAdapter {
   }
 
   EndpointSpec? _match(String method, String path) {
+    final upper = method.toUpperCase();
+    // The base-stripped variant depends only on the request path, not on the
+    // endpoint, so compute it once rather than re-parsing spec.baseUrl on every
+    // loop iteration.
+    final stripped = _stripBase(path);
+    final hasStripped = stripped != path;
     for (final ep in spec.endpoints) {
-      if (ep.method != method.toUpperCase()) continue;
-      if (ep.pathPattern.hasMatch(path)) return ep;
+      if (ep.method != upper) continue;
+      final pattern = ep.pathPattern;
+      if (pattern.hasMatch(path)) return ep;
       // Also allow the spec base path prefix to be absent.
-      final stripped = _stripBase(path);
-      if (stripped != path && ep.pathPattern.hasMatch(stripped)) return ep;
+      if (hasStripped && pattern.hasMatch(stripped)) return ep;
     }
     return null;
   }
@@ -249,12 +266,14 @@ class SpecMockAdapter implements HttpAdapter {
     return null;
   }
 
+  /// Matches the operation name in a GraphQL document. The pattern is fixed, so
+  /// compile it once instead of on every extraction.
+  static final RegExp _opNamePattern =
+      RegExp(r'(?:query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)');
+
   String? _extractOpName(String? document) {
     if (document == null) return null;
-    final m = RegExp(
-      r'(?:query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)',
-    ).firstMatch(document);
-    return m?.group(1);
+    return _opNamePattern.firstMatch(document)?.group(1);
   }
 
   AdapterResponse _gqlResponse(

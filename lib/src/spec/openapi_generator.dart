@@ -6,10 +6,17 @@ import 'schema.dart';
 
 /// Emits an OpenAPI 3.1 document (JSON or YAML) derived from an [ApiSpec].
 class OpenApiGenerator {
+  /// Creates a generator for [spec].
   OpenApiGenerator(this.spec);
 
+  /// The spec this generator derives its document from.
   final ApiSpec spec;
 
+  /// Characters that force a YAML scalar to be quoted. Fixed pattern, compiled
+  /// once rather than per emitted string.
+  static final RegExp _yamlSpecial = RegExp(r'[:#\-?\[\]\{\}&*!|>%@`\n]');
+
+  /// Builds the OpenAPI document as a JSON-encodable map.
   Map<String, Object?> toJson() {
     final paths = <String, Map<String, Object?>>{};
     for (final ep in spec.endpoints) {
@@ -115,10 +122,12 @@ class OpenApiGenerator {
     }
   }
 
+  /// Renders the OpenAPI document as pretty-printed JSON.
   String toJsonString() {
     return const JsonEncoder.withIndent('  ').convert(toJson());
   }
 
+  /// Renders the OpenAPI document as YAML.
   String toYaml() => _toYaml(toJson(), 0);
 
   String _toYaml(Object? value, int indent) {
@@ -164,7 +173,7 @@ class OpenApiGenerator {
 
   String _yamlString(String s) {
     if (s.isEmpty) return '""';
-    final needsQuoting = RegExp(r'[:#\-?\[\]\{\}&*!|>%@`\n]').hasMatch(s) ||
+    final needsQuoting = _yamlSpecial.hasMatch(s) ||
         s.startsWith(' ') ||
         s.endsWith(' ') ||
         const ['true', 'false', 'null', 'yes', 'no'].contains(s.toLowerCase());

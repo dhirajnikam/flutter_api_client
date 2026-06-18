@@ -44,8 +44,13 @@ final class HttpError extends ApiException {
     super.stackTrace,
   });
 
+  /// The non-2xx status code the server returned.
   final int statusCode;
+
+  /// The decoded error body, if any (shape depends on the response).
   final dynamic body;
+
+  /// The response headers.
   final Map<String, String> headers;
 }
 
@@ -65,8 +70,13 @@ final class PayloadTooLargeError extends ApiException {
     super.stackTrace,
   });
 
+  /// The configured byte limit that was exceeded.
   final int? limitBytes;
+
+  /// The actual size in bytes that tripped the limit.
   final int? actualBytes;
+
+  /// Which body exceeded the limit: `'request'` or `'response'`.
   final String? direction;
 }
 

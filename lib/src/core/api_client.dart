@@ -4,6 +4,7 @@ import '../auth/auth_interceptor.dart';
 import '../auth/token_storage.dart';
 import '../http/default_http_adapter.dart';
 import '../http/http_adapter.dart';
+import '../http/http_stream_response.dart';
 import '../interceptors/interceptor.dart';
 import '../interceptors/interceptor_chain.dart';
 import '../interceptors/request_identity.dart';
@@ -33,19 +34,46 @@ class ApiClientConfig {
     this.adapter,
   });
 
+  /// Base URL every endpoint is resolved against.
   final String baseUrl;
+
+  /// Token store used by the built-in auth interceptor. Mutually exclusive
+  /// with [getAccessToken].
   final TokenStorage? tokenStorage;
+
+  /// Supplies the access token on demand. Mutually exclusive with
+  /// [tokenStorage].
   final Future<String?> Function()? getAccessToken;
+
+  /// Called on a 401 to refresh credentials; returns true if it succeeded.
   final Future<bool> Function()? refreshToken;
+
+  /// Headers added to every request.
   final Map<String, String> extraHeaders;
+
+  /// Default per-request timeout.
   final Duration connectTimeout;
+
+  /// Authorization scheme prefix (e.g. `Bearer`). Empty sends a bare token.
   final String authScheme;
+
+  /// Rejects requests whose encoded body exceeds this many bytes.
   final int? maxRequestBodyBytes;
+
+  /// Rejects responses whose buffered body exceeds this many bytes.
   final int? maxResponseBodyBytes;
+
+  /// Extracts error messages from non-2xx responses. Defaults to
+  /// [ResponseHandler].
   final ResponseHandlerInterface? responseHandler;
+
+  /// Interceptors run in order, after the auto-configured auth interceptor.
   final List<Interceptor> interceptors;
+
+  /// Transport. Defaults to [DefaultHttpAdapter] when omitted.
   final HttpAdapter? adapter;
 
+  /// Config whose auth token comes from a [getAccessToken] callback.
   factory ApiClientConfig.withToken({
     required String baseUrl,
     required Future<String?> Function() getAccessToken,
@@ -69,6 +97,7 @@ class ApiClientConfig {
         interceptors: interceptors,
       );
 
+  /// Config whose auth token is read from (and refreshed into) [tokenStorage].
   factory ApiClientConfig.withStorage({
     required String baseUrl,
     required TokenStorage tokenStorage,
@@ -92,6 +121,8 @@ class ApiClientConfig {
         interceptors: interceptors,
       );
 
+  /// Config with no auth, wired to an injected [adapter] (e.g. a mock) for
+  /// tests.
   factory ApiClientConfig.test({
     required String baseUrl,
     required HttpAdapter adapter,
@@ -109,7 +140,12 @@ class ApiClientConfig {
 }
 
 /// Public API of an HTTP client.
+///
+/// Every method returns an [ApiResult]; transport, HTTP, and decode failures
+/// are surfaced as a [Failure], never thrown. Pass a [decoder] to turn the
+/// JSON body into `T`; without one, `T` must match the raw decoded shape.
 abstract class ApiClientInterface {
+  /// Sends a GET to [endpoint].
   Future<ApiResult<T>> get<T>(
     String endpoint, {
     bool includeToken = true,
@@ -117,6 +153,7 @@ abstract class ApiClientInterface {
     T Function(Object json)? decoder,
   });
 
+  /// Sends a POST with [data] as the body, or as multipart when [isMultipart].
   Future<ApiResult<T>> post<T>(
     String endpoint,
     dynamic data, {
@@ -126,6 +163,7 @@ abstract class ApiClientInterface {
     T Function(Object json)? decoder,
   });
 
+  /// Sends a PUT with [data] as the body, or as multipart when [isMultipart].
   Future<ApiResult<T>> put<T>(
     String endpoint,
     dynamic data, {
@@ -135,6 +173,7 @@ abstract class ApiClientInterface {
     T Function(Object json)? decoder,
   });
 
+  /// Sends a PATCH with [data] as the body, or as multipart when [isMultipart].
   Future<ApiResult<T>> patch<T>(
     String endpoint,
     dynamic data, {
@@ -144,6 +183,7 @@ abstract class ApiClientInterface {
     T Function(Object json)? decoder,
   });
 
+  /// Sends a DELETE to [endpoint].
   Future<ApiResult<T>> delete<T>(
     String endpoint, {
     bool includeToken = true,
@@ -191,6 +231,7 @@ class ApiClient implements ApiClientInterface {
     return const [];
   }
 
+  /// The transport this client sends through.
   HttpAdapter get adapter => _adapter;
 
   Future<ApiResult<T>> _request<T>(
@@ -219,8 +260,23 @@ class ApiClient implements ApiClientInterface {
           false => _decodeErrorBody<T>(res, responseType, decoder),
         };
         if (isSuccess) {
+          final T value;
+          try {
+            value = parsed as T;
+          } on TypeError catch (e, st) {
+            // No decoder was supplied (or it returned the wrong shape) and the
+            // raw JSON does not match the requested type `T`. This is a parse /
+            // contract failure, not an "unknown" error — surface it as such so
+            // the sealed-result contract stays honest.
+            throw ParseError(
+              'Response body could not be cast to the expected type. '
+              'Supply a `decoder` for non-primitive types.',
+              cause: e,
+              stackTrace: st,
+            );
+          }
           return Success<T>(
-            parsed as T,
+            value,
             statusCode: res.statusCode,
             headers: res.headers,
           );
@@ -335,28 +391,110 @@ class ApiClient implements ApiClientInterface {
     return _chain.run(request: req, transport: _transport);
   }
 
-  Future<AdapterResponse> _transport(InterceptedRequest req) async {
+  /// Sends a request and returns the response body as a live byte stream
+  /// instead of buffering it. Use for large downloads or incremental
+  /// (SSE/NDJSON) bodies.
+  ///
+  /// Runs the full interceptor chain (so auth, retries, and headers apply),
+  /// but cache and dedup pass streaming responses through untouched since an
+  /// unbuffered body cannot be stored or shared.
+  Future<ApiResult<HttpStreamResponse>> stream(
+    String endpoint, {
+    String method = 'GET',
+    dynamic data,
+    bool includeToken = true,
+    RequestOptions? options,
+  }) async {
+    try {
+      final resolvedOptions = _resolveOptions(options, includeToken);
+      final req = InterceptedRequest(
+        method: method.toUpperCase(),
+        endpoint: endpoint,
+        headers: _buildHeaders(resolvedOptions, isMultipart: false),
+        options: resolvedOptions,
+        data: data,
+      );
+      final res = await _chain.run(request: req, transport: _streamTransport);
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final streamed = HttpStreamResponse(
+          statusCode: res.statusCode,
+          headers: res.headers,
+          stream: res.bodyStream ?? Stream<List<int>>.value(res.bodyBytes),
+        );
+        return Success<HttpStreamResponse>(
+          streamed,
+          statusCode: res.statusCode,
+          headers: res.headers,
+        );
+      }
+      // Error response: the caller receives a Failure and never consumes the
+      // body, so an unbuffered `bodyStream` would otherwise leave its backing
+      // subscription (and the adapter's owned HTTP client) open forever. Drain
+      // it to drive the adapter's cleanup. We swallow body errors here because
+      // the failure is already represented by the HttpError below.
+      final bodyStream = res.bodyStream;
+      if (bodyStream != null) {
+        await bodyStream.drain<void>().catchError((_) {});
+      }
+      final msg =
+          _responseHandler.handleResponse(res) ?? 'HTTP ${res.statusCode}';
+      return Failure<HttpStreamResponse>(
+        HttpError(msg, statusCode: res.statusCode, headers: res.headers),
+        statusCode: res.statusCode,
+      );
+    } on ApiException catch (e) {
+      return Failure<HttpStreamResponse>(e);
+    } catch (e, st) {
+      return Failure<HttpStreamResponse>(
+        UnknownError(e.toString(), cause: e, stackTrace: st),
+      );
+    }
+  }
+
+  Future<AdapterResponse> _transport(InterceptedRequest req) =>
+      _dispatch(req, streaming: false);
+
+  Future<AdapterResponse> _streamTransport(InterceptedRequest req) =>
+      _dispatch(req, streaming: true);
+
+  Future<AdapterResponse> _dispatch(
+    InterceptedRequest req, {
+    required bool streaming,
+  }) async {
     final url = buildUri(
       baseUrl: req.options.baseUrlOverride ?? _config.baseUrl,
       endpoint: req.endpoint,
       queryParameters: req.options.queryParameters,
     );
     final payload = _buildPayload(req.data, isMultipart: req.isMultipart);
-    return _adapter.send(
-      AdapterRequest(
-        method: req.method,
-        url: url,
-        headers: stripInternalRequestHeaders(req.headers),
-        body: payload.body,
-        formData: payload.formData,
-        isMultipart: req.isMultipart,
-        timeout: req.options.timeout ?? _config.connectTimeout,
-        cancelToken: req.options.cancelToken,
-        onSendProgress: req.options.onSendProgress,
-        onReceiveProgress: req.options.onReceiveProgress,
-        maxRequestBodyBytes: req.options.maxRequestBodyBytes,
-        maxResponseBodyBytes: req.options.maxResponseBodyBytes,
-      ),
+    final adapterRequest = AdapterRequest(
+      method: req.method,
+      url: url,
+      headers: stripInternalRequestHeaders(req.headers),
+      body: payload.body,
+      formData: payload.formData,
+      isMultipart: req.isMultipart,
+      timeout: req.options.timeout ?? _config.connectTimeout,
+      cancelToken: req.options.cancelToken,
+      onSendProgress: req.options.onSendProgress,
+      onReceiveProgress: req.options.onReceiveProgress,
+      maxRequestBodyBytes: req.options.maxRequestBodyBytes,
+      maxResponseBodyBytes: req.options.maxResponseBodyBytes,
+    );
+    if (!streaming) return _adapter.send(adapterRequest);
+    final adapter = _adapter;
+    if (adapter is StreamingHttpAdapter) {
+      return (adapter as StreamingHttpAdapter).sendStreaming(adapterRequest);
+    }
+    // Adapter can't stream: buffer once and expose the bytes as a stream so
+    // `stream()` still works (just without the memory benefit).
+    final res = await _adapter.send(adapterRequest);
+    return AdapterResponse(
+      statusCode: res.statusCode,
+      headers: res.headers,
+      bodyBytes: res.bodyBytes,
+      reasonPhrase: res.reasonPhrase,
+      bodyStream: Stream<List<int>>.value(res.bodyBytes),
     );
   }
 
@@ -364,7 +502,15 @@ class ApiClient implements ApiClientInterface {
     RequestOptions? options,
     bool includeToken,
   ) {
-    final effectiveIncludeToken = options?.includeToken ?? includeToken;
+    // Fail-safe AND: the token is attached only when BOTH the method argument
+    // and the per-request options permit it. Suppressing the token is a
+    // deliberate security decision; if either knob says "no token", we honour
+    // it. Previously `options?.includeToken ?? includeToken` let the options
+    // default (`true`) silently override an explicit `includeToken: false`
+    // method argument, leaking the Authorization header onto a request the
+    // caller had explicitly excluded.
+    final effectiveIncludeToken =
+        includeToken && (options?.includeToken ?? true);
     final effectiveTimeout = options?.timeout ?? _config.connectTimeout;
     final effectiveBaseUrl = options?.baseUrlOverride ?? _config.baseUrl;
     return (options ?? const RequestOptions()).copyWith(
@@ -381,15 +527,31 @@ class ApiClient implements ApiClientInterface {
   Map<String, String> _buildHeaders(
     RequestOptions options, {
     required bool isMultipart,
-  }) =>
-      <String, String>{
-        'Accept': 'application/json',
-        'Accept-Language': 'en',
-        if (!isMultipart) 'Content-Type': 'application/json',
-        ..._config.extraHeaders,
-        ...options.extraHeaders,
-        ...?options.headers,
-      };
+  }) {
+    // Merge case-insensitively: HTTP header names are case-insensitive
+    // (RFC 7230 §3.2), so a caller override like `content-type` must REPLACE
+    // the default `Content-Type` rather than sit alongside it. A naive map
+    // spread keyed by the literal string emitted BOTH, putting two conflicting
+    // Content-Type headers on the wire and letting the server pick either one.
+    // Later sources win; the latest casing for a given name is preserved.
+    final merged = <String, String>{};
+    final canonical = <String, String>{}; // lower-case name -> stored key
+    void put(String key, String value) {
+      final lower = key.toLowerCase();
+      final existing = canonical[lower];
+      if (existing != null) merged.remove(existing);
+      merged[key] = value;
+      canonical[lower] = key;
+    }
+
+    put('Accept', 'application/json');
+    put('Accept-Language', 'en');
+    if (!isMultipart) put('Content-Type', 'application/json');
+    _config.extraHeaders.forEach(put);
+    options.extraHeaders.forEach(put);
+    options.headers?.forEach(put);
+    return merged;
+  }
 
   ({FormData? formData, Object? body}) _buildPayload(
     dynamic data, {
@@ -419,11 +581,28 @@ class ApiClient implements ApiClientInterface {
       case ResponseType.bytes:
         return res.bodyBytes;
       case ResponseType.plainText:
-        return utf8.decode(res.bodyBytes);
+        return _decodePlainText(res.bodyBytes);
       case ResponseType.stream:
         return res.bodyBytes;
       case ResponseType.json:
         return _decodeJsonSuccessBody(res, decoder);
+    }
+  }
+
+  /// Decodes a plain-text body, surfacing an invalid UTF-8 sequence as a typed
+  /// [ParseError] rather than letting the raw `FormatException` escape and be
+  /// reclassified as an opaque `UnknownError`. Mirrors the JSON path's typing so
+  /// "a decode failure is a ParseError" holds for every response mode. An empty
+  /// body decodes to the empty string (unchanged).
+  String _decodePlainText(List<int> bodyBytes) {
+    try {
+      return utf8.decode(bodyBytes);
+    } on FormatException catch (e, st) {
+      throw ParseError(
+        'Failed to decode response body as UTF-8.',
+        cause: e,
+        stackTrace: st,
+      );
     }
   }
 
@@ -457,25 +636,30 @@ class ApiClient implements ApiClientInterface {
       case ResponseType.bytes:
         return res.bodyBytes;
       case ResponseType.plainText:
-        return utf8.decode(res.bodyBytes);
+        // On the error path the body is only informational (the failure is
+        // already represented by the HttpError), so a malformed body degrades
+        // to null instead of throwing — never an escaping FormatException.
+        try {
+          return utf8.decode(res.bodyBytes);
+        } on FormatException {
+          return null;
+        }
       case ResponseType.stream:
         return res.bodyBytes;
       case ResponseType.json:
         final raw = _tryDecodeUtf8(res.bodyBytes, throwOnFailure: false);
         if (raw == null) return null;
         final parsed = _tryParseJson(raw, throwOnFailure: false);
-        if (parsed != null) {
-          if (decoder != null) {
-            try {
-              return decoder(parsed);
-            } catch (_) {
-              return parsed;
-            }
-          }
+        // A body that is missing, malformed, or HTML is only informational on
+        // the error path (the failure is already the HttpError), so it degrades
+        // to null rather than throwing.
+        if (parsed == null) return null;
+        if (decoder == null) return parsed;
+        try {
+          return decoder(parsed);
+        } catch (_) {
           return parsed;
         }
-        if (_responseHandler.isHtmlOrTextResponse(raw)) return null;
-        return null;
     }
   }
 
@@ -527,6 +711,8 @@ class ApiClient implements ApiClientInterface {
     }
   }
 
+  /// Releases the underlying adapter's resources. Call when done with the
+  /// client.
   void close() => _adapter.close();
 }
 

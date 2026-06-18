@@ -8,41 +8,53 @@ import 'package:flutter_api_client_example/my_spec.dart';
 void main() {
   group('Users', () {
     test('GET /users — happy path', () async {
-      final client = ApiClient(ApiClientConfig.test(
-        baseUrl: 'https://dummyjson.com',
-        adapter: SpecMockAdapter($generatedSpec),
-      ));
+      final client = ApiClient(
+        ApiClientConfig.test(
+          baseUrl: 'https://dummyjson.com',
+          adapter: SpecMockAdapter($generatedSpec),
+        ),
+      );
       final res = await client.get<dynamic>('users');
       expect(res.isSuccess, true);
     });
 
     test('GET /users — auth required returns 401', () async {
-      final client = ApiClient(ApiClientConfig.test(
-        baseUrl: 'https://dummyjson.com',
-        adapter: SpecMockAdapter($generatedSpec, statusOverrides: const {'GET /users': 401}),
-      ));
+      final client = ApiClient(
+        ApiClientConfig.test(
+          baseUrl: 'https://dummyjson.com',
+          adapter: SpecMockAdapter(
+            $generatedSpec,
+            statusOverrides: const {'GET /users': 401},
+          ),
+        ),
+      );
       final res = await client.get<dynamic>('users');
       expect(res.statusCode, 401);
     });
 
     test('GET /users/{id} — happy path', () async {
-      final client = ApiClient(ApiClientConfig.test(
-        baseUrl: 'https://dummyjson.com',
-        adapter: SpecMockAdapter($generatedSpec),
-      ));
+      final client = ApiClient(
+        ApiClientConfig.test(
+          baseUrl: 'https://dummyjson.com',
+          adapter: SpecMockAdapter($generatedSpec),
+        ),
+      );
       final res = await client.get<dynamic>('users/1');
       expect(res.isSuccess, true);
     });
 
     test('GET /users/{id} — auth required returns 401', () async {
-      final client = ApiClient(ApiClientConfig.test(
-        baseUrl: 'https://dummyjson.com',
-        adapter: SpecMockAdapter($generatedSpec, statusOverrides: const {'GET /users/{id}': 401}),
-      ));
+      final client = ApiClient(
+        ApiClientConfig.test(
+          baseUrl: 'https://dummyjson.com',
+          adapter: SpecMockAdapter(
+            $generatedSpec,
+            statusOverrides: const {'GET /users/{id}': 401},
+          ),
+        ),
+      );
       final res = await client.get<dynamic>('users/1');
       expect(res.statusCode, 401);
     });
-
   });
-
 }

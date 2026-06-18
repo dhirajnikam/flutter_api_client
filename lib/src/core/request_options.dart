@@ -1,4 +1,5 @@
 import 'cancel_token.dart';
+import 'policies.dart';
 import 'response_type.dart';
 
 /// Callback used for upload / download progress.
@@ -57,15 +58,11 @@ class RequestOptions {
   /// Called as response body bytes are received.
   final ProgressCallback? onReceiveProgress;
 
-  /// Override retry policy for this request.
-  /// Pass a [RetryPolicy] from `package:flutter_api_client/flutter_api_client.dart`.
-  /// Typed as [Object?] to avoid a circular import between core and interceptors.
-  final Object? retryPolicy;
+  /// Override retry policy for this request. Pass a `RetryPolicy`.
+  final RetryPolicyInterface? retryPolicy;
 
-  /// Override cache policy for this request.
-  /// Pass a [CachePolicy] from `package:flutter_api_client/flutter_api_client.dart`.
-  /// Typed as [Object?] to avoid a circular import between core and interceptors.
-  final Object? cachePolicy;
+  /// Override cache policy for this request. Pass a `CachePolicy`.
+  final CachePolicyInterface? cachePolicy;
 
   /// Override the maximum encoded request body size in bytes.
   final int? maxRequestBodyBytes;
@@ -87,8 +84,8 @@ class RequestOptions {
     CancelToken? cancelToken,
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
-    Object? retryPolicy,
-    Object? cachePolicy,
+    RetryPolicyInterface? retryPolicy,
+    CachePolicyInterface? cachePolicy,
     int? maxRequestBodyBytes,
     int? maxResponseBodyBytes,
     Object? tag,
@@ -107,8 +104,7 @@ class RequestOptions {
         retryPolicy: retryPolicy ?? this.retryPolicy,
         cachePolicy: cachePolicy ?? this.cachePolicy,
         maxRequestBodyBytes: maxRequestBodyBytes ?? this.maxRequestBodyBytes,
-        maxResponseBodyBytes:
-            maxResponseBodyBytes ?? this.maxResponseBodyBytes,
+        maxResponseBodyBytes: maxResponseBodyBytes ?? this.maxResponseBodyBytes,
         tag: tag ?? this.tag,
       );
 }

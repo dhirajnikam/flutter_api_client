@@ -4,6 +4,8 @@ import 'schema.dart';
 
 /// A single endpoint in the spec.
 class EndpointSpec {
+  /// Creates an endpoint. Prefer [ApiSpec.endpoint] / [EndpointGroup.endpoint]
+  /// over calling this directly.
   EndpointSpec({
     required this.method,
     required this.path,
@@ -17,46 +19,70 @@ class EndpointSpec {
     this.responses = const [],
   });
 
+  /// Uppercase HTTP method, e.g. `GET` or `POST`.
   final String method;
 
   /// Path with `{paramName}` placeholders, e.g. `/users/{id}`.
   final String path;
 
+  /// One-line summary shown in generated docs.
   final String? summary;
+
+  /// Longer prose description shown in generated docs.
   final String? description;
+
+  /// Grouping tag; endpoints sharing a tag are documented together.
   final String? tag;
+
+  /// Whether this endpoint requires an auth token. Defaults to `true`.
   final bool auth;
+
+  /// Schemas for path parameters, keyed by placeholder name.
   final Map<String, Schema> pathParams;
+
+  /// Schemas for query parameters, keyed by parameter name.
   final Map<String, Schema> queryParams;
+
+  /// Example request body and its schema, if the endpoint takes a body.
   final RequestExample? request;
+
+  /// Declared example responses, used to drive mocks and docs.
   final List<ResponseExample> responses;
 
-  ResponseExample? get firstSuccess => responses
-      .where((r) => r.isSuccess)
-      .cast<ResponseExample?>()
-      .firstWhere((_) => true, orElse: () => null);
+  /// Matches a `{placeholder}` token in a path. The pattern depends only on the
+  /// path syntax, not on any instance, so compile it once and share it.
+  static final RegExp _placeholder = RegExp(r'\{([^}]+)\}');
+
+  /// The first 2xx response in [responses], or `null` if none is declared.
+  ResponseExample? get firstSuccess {
+    for (final r in responses) {
+      if (r.isSuccess) return r;
+    }
+    return null;
+  }
 
   /// Compiles `path` into a regex matcher (e.g. `/users/(.+?)`).
-  RegExp get pathPattern {
-    final escaped = path.replaceAllMapped(
-      RegExp(r'\{([^}]+)\}'),
-      (_) => r'([^/]+)',
-    );
-    return RegExp('^$escaped\$');
-  }
+  ///
+  /// `path` is immutable, so the compiled pattern is memoized: callers such as
+  /// the spec mock adapter probe this once per endpoint per request, and
+  /// recompiling a fixed regex on every probe is overhead the problem does not
+  /// require.
+  RegExp get pathPattern => _pathPattern ??=
+      RegExp('^${path.replaceAllMapped(_placeholder, (_) => r'([^/]+)')}\$');
+  RegExp? _pathPattern;
 
-  List<String> get pathParamNames {
-    final out = <String>[];
-    final re = RegExp(r'\{([^}]+)\}');
-    for (final m in re.allMatches(path)) {
-      out.add(m.group(1)!);
-    }
-    return out;
-  }
+  /// The placeholder names in [path], in order (e.g. `['id']` for
+  /// `/users/{id}`). Memoized — derived purely from the immutable `path`.
+  List<String> get pathParamNames => _pathParamNames ??= [
+        for (final m in _placeholder.allMatches(path)) m.group(1)!,
+      ];
+  List<String>? _pathParamNames;
 }
 
 /// A spec is the source of truth: it drives mocks, OpenAPI, and docs.
 class ApiSpec {
+  /// Creates a spec. Add endpoints with [endpoint] / [group] and an optional
+  /// GraphQL section with [graphql].
   ApiSpec({
     required this.title,
     required this.version,
@@ -67,14 +93,28 @@ class ApiSpec {
     this.license,
   });
 
+  /// Human-readable API title.
   final String title;
+
+  /// API version string, e.g. `1.0.0`.
   final String version;
+
+  /// Default server base URL.
   final String baseUrl;
+
+  /// Optional prose description of the API.
   final String? description;
+
+  /// Additional server URLs beyond [baseUrl]; emitted in the OpenAPI document.
   final List<String> servers;
+
+  /// Optional contact metadata (e.g. `{'name': ..., 'email': ...}`).
   final Map<String, String>? contact;
+
+  /// Optional license metadata (e.g. `{'name': ..., 'url': ...}`).
   final Map<String, String>? license;
 
+  /// All registered HTTP endpoints, in declaration order.
   final List<EndpointSpec> endpoints = [];
 
   /// Optional GraphQL section. Populated lazily via [graphql].

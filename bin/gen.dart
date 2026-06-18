@@ -10,7 +10,8 @@ void main(List<String> args) async {
         defaultsTo: 'docs/api',
         help: 'Output directory for generated files')
     ..addOption('only',
-        help: 'Comma-separated subset to generate: openapi, reference, backend')
+        help:
+            'Comma-separated subset to generate: openapi, reference, backend, tests')
     ..addOption('framework',
         defaultsTo: 'none',
         allowed: ['none', 'express', 'fastapi', 'gin'],

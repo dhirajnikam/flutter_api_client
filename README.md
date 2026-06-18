@@ -8,7 +8,7 @@ a Markdown API reference, and a backend implementation guide.
 
 [![pub package](https://img.shields.io/pub/v/flutter_api_client.svg)](https://pub.dev/packages/flutter_api_client)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-107%20passing-brightgreen)](#test-suite)
+[![Tests](https://img.shields.io/badge/tests-244%20passing-brightgreen)](#test-suite)
 
 ---
 
@@ -49,7 +49,7 @@ a Markdown API reference, and a backend implementation guide.
 
 ```yaml
 dependencies:
-  flutter_api_client: ^1.0.3
+  flutter_api_client: ^1.1.0
 
 dev_dependencies:
   build_runner: ^2.15.0
@@ -99,7 +99,7 @@ flutter test --concurrency=8
 
 ### Feature Comparison
 
-| Feature | `dio` | `http` | `flutter_api_client` 1.0 |
+| Feature | `dio` | `http` | `flutter_api_client` 1.1 |
 |---|---|---|---|
 | Typed `get<T>` / `post<T>` with decoder | manual | no | ✅ built-in |
 | Sealed `ApiResult<T>` (Success / Failure) | no | no | ✅ built-in |
@@ -167,7 +167,7 @@ flutter test --concurrency=8
 ### Testing & Mocking
 - **MockAdapter**: Route-based mocking with request capture
 - **SpecMockAdapter**: Schema-validating mock from API spec
-- **Built-in test suite**: 107+ passing tests covering all features
+- **Built-in test suite**: 244+ passing tests covering all features
 - **No external mock libs**: Everything needed for testing included
 
 ### Spec-Driven Development (Unique Feature)
@@ -184,7 +184,7 @@ flutter test --concurrency=8
 - **Partial responses**: Handle mixed data and errors
 - **Auto persisted queries (APQ)**: Bandwidth optimization with query hashing
 - **Variable validation**: Schema-based variable checking in specs
-- **Framework snippets**: Apollo, Strawberry, gqlgen code generation
+- **Framework snippets**: backend skeletons for Express/Apollo, FastAPI/Strawberry, and Gin/gqlgen
 
 ### Extensibility
 - **Pluggable transport**: Swap HTTP implementation (`cupertino_http`, `cronet_http`)
@@ -200,7 +200,7 @@ flutter test --concurrency=8
 ```yaml
 # pubspec.yaml
 dependencies:
-  flutter_api_client: ^1.0.3
+  flutter_api_client: ^1.1.0
 ```
 
 ```bash
@@ -566,6 +566,14 @@ ApiClientConfig(
 Pass interceptors to `ApiClientConfig.interceptors`. They run in
 **list order on request** and **reverse list order on response/error**.
 
+> **Recommended ordering:** place `DedupInterceptor` **before** `RetryInterceptor`
+> in the list (e.g. `[DedupInterceptor(), RetryInterceptor(), CacheInterceptor(...)]`
+> — auth is prepended automatically). Either order is *correct*, but with dedup
+> ahead of retry the dedup window spans the whole retry sequence, so followers
+> coalesce onto the retried result (fewer network hits). With retry ahead of
+> dedup, followers are released on the pre-retry failure and re-issue
+> independently (still correct, just more network hits).
+
 Each interceptor overrides one or more of:
 
 ```dart
@@ -723,42 +731,29 @@ OfflineQueueInterceptor(
 )
 ```
 
-**Replaying the queue** when connectivity returns:
+**Replaying the queue** when connectivity returns — use the built-in
+`OfflineQueueReplayer`:
 
 ```dart
 final box = await Hive.openBox<String>('offline_queue');
 final store = HiveOfflineQueueStore(box);
-// ...when online:
-final pending = await store.drain();
-for (final req in pending) {
-  final result = switch (req.method.toUpperCase()) {
-    'POST' => await client.post<dynamic>(
-        req.endpoint,
-        req.body,
-        options: RequestOptions(headers: req.headers),
-      ),
-    'PUT' => await client.put<dynamic>(
-        req.endpoint,
-        req.body,
-        options: RequestOptions(headers: req.headers),
-      ),
-    'PATCH' => await client.patch<dynamic>(
-        req.endpoint,
-        req.body,
-        options: RequestOptions(headers: req.headers),
-      ),
-    'DELETE' => await client.delete<dynamic>(
-        req.endpoint,
-        options: RequestOptions(headers: req.headers),
-      ),
-    _ => const Failure<dynamic>(UnknownError('Unsupported queued method')),
-  };
 
-  if (result.isFailure) {
-    await store.enqueue(req); // re-enqueue on failure
-  }
-}
+// ...when online (e.g. from a connectivity listener):
+final report = await OfflineQueueReplayer(
+  store: store,
+  client: client,
+  maxAttempts: 3, // dead-letter a request after this many failed replays
+).replay();
+
+print(report); // succeeded / reEnqueued / deadLettered counts
 ```
+
+The replayer drains the queue in `createdAt` order and re-issues each request
+through `client`, so a fresh `Authorization` token is attached automatically.
+A request that fails transiently (network/timeout) is re-enqueued with an
+incremented attempt count; once it reaches `maxAttempts` it is dead-lettered
+instead of looping forever. A request the server actually rejects (a non
+network/timeout error) is dropped.
 
 Queued requests retain ordinary request headers, but the interceptor drops the
 `Authorization` header before persisting so replay uses the current token
@@ -964,19 +959,16 @@ final res = await gql.mutation<Map<String, dynamic>>(
 ### Automatic Persisted Queries (APQ)
 
 ```dart
-import 'package:crypto/crypto.dart';
-import 'dart:convert';
-
 final gql = GraphQLClient(
   client,
   usePersistedQueries: true,
-  hashQuery: (doc) => sha256.convert(utf8.encode(doc)).toString(),
 );
 ```
 
 On first send the client transmits only the hash. On `PersistedQueryNotFound`
-it automatically falls back to the full document. Replace the default hash
-(simple FNV-style) with SHA-256 for production.
+it automatically falls back to the full document. The default hash is the
+SHA-256 hex digest the APQ protocol expects, so it matches a server-registered
+document out of the box — override `hashQuery` only for a custom registry.
 
 All `ApiClient` interceptors apply to GraphQL calls transparently because
 every operation routes through the standard HTTP layer.
@@ -1328,7 +1320,7 @@ class MyAdapter implements HttpAdapter {
 
 ## Test suite
 
-**167 root-package tests + 4 example tests — all passing** (verified with
+**244 root-package tests + 4 example tests — all passing** (verified with
 `flutter test` at the repo root and in `example/`):
 
 ```text
@@ -1351,6 +1343,8 @@ All tests passed.
 | `graphql_test.dart` | GraphQL client flows, validation, status overrides, and generator output |
 | `gen_cli_test.dart` | CLI generator selection and generated spec discovery |
 | `test_generator_test.dart` | Generated test scaffold output |
+| `default_http_adapter_test.dart` | Transport: body encoding, header handling, response coalescing |
+| `bugfix_core_test.dart` / `bugfix_http_test.dart` / `bugfix_interceptors_test.dart` / `bugfix_spec_test.dart` / `fixes_test.dart` | Regression tests pinning fixed bugs (auth-token leak guard, single `Content-Type` merge, streaming error-path drain, APQ hash fallback, dedup-on-retry no deadlock) |
 Run with coverage:
 
 ```bash

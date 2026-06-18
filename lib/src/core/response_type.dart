@@ -9,6 +9,10 @@ enum ResponseType {
   /// Return body as a `String` without JSON decoding.
   plainText,
 
-  /// Return the raw streamed response (advanced use).
+  /// Return the buffered body bytes.
+  ///
+  /// Note: the typed `get`/`post`/etc. path always buffers the body. For a
+  /// genuinely unbuffered, incremental body use `ApiClient.stream`, which
+  /// returns an `HttpStreamResponse`.
   stream,
 }

@@ -1,3 +1,69 @@
+## 1.1.0
+
+**Release Date**: 2026-06-17  
+**Type**: Minor Release (New features + resilience/performance fixes)  
+**Breaking Changes**: None (additive; `RequestOptions.retryPolicy`/`cachePolicy` are now statically typed)
+
+This release adds a true streaming download path and an offline-queue replay
+engine, and hardens retries, caching, dedup, and GraphQL APQ. Fully backward
+compatible with 1.0.3.
+
+### Added
+* **Offline queue replay engine**: `OfflineQueueReplayer` drains the queue in
+  `createdAt` order and re-issues each request through the client (re-attaching
+  a fresh auth token). Transient failures are re-enqueued with an attempt
+  count; requests are dead-lettered after `maxAttempts` to prevent poison-message
+  loops. `QueuedRequest` now carries an `attempts` field (defaults to 0 for
+  existing persisted records).
+* **Real streaming responses**: `ApiClient.stream()` returns an
+  `HttpStreamResponse` whose body is delivered as a live byte stream instead of
+  being buffered. `DefaultHttpAdapter` implements the new optional
+  `StreamingHttpAdapter` capability; adapters that don't support it fall back to
+  buffering transparently.
+* **`MemoryCacheStore` byte bound**: optional `maxBytes` cap so the cache evicts
+  by total body size, not just entry count.
+
+### Fixed
+* **Response body copied three times**: the receive path now uses a
+  `BytesBuilder`, coalescing the body in a single pass instead of
+  `expand().toList()` + `Uint8List.fromList`.
+* **`Retry-After` could wedge a request**: the header is now clamped to
+  `maxDelay`, negative values are rejected, and the HTTP-date form is parsed.
+* **Correlated retry jitter**: retries now use a shared RNG and full jitter
+  (uniform in `[0, capped]`) so concurrent clients decorrelate under load.
+* **Dedup deadlock on retry**: a retried deduped request no longer awaits its
+  own in-flight completer; followers also time out (`waitTimeout`) instead of
+  hanging if a leader never completes.
+* **GraphQL APQ hash**: the default `hashQuery` now produces a real SHA-256 hex
+  digest, so the persisted-query fast path can match a server-registered
+  document (the old placeholder guaranteed a miss + full-document fallback). The
+  fallback request after a `PersistedQueryNotFound` miss now carries the full
+  document **and** the `sha256Hash` together, so the server can register the
+  query and later calls hit the fast path (previously the hash was dropped on
+  fallback, so APQ could never engage).
+* **Auth token could leak past an explicit `includeToken: false`**: when a
+  request supplied both a method-level `includeToken: false` and a non-null
+  `RequestOptions`, the options default (`true`) silently won and the
+  `Authorization` header was attached anyway. Token attachment is now fail-safe:
+  it requires *both* sources to permit it.
+* **Duplicate `Content-Type` headers**: a caller header override spelled with
+  different casing (e.g. `content-type`) no longer emits a second, conflicting
+  `Content-Type`; header merging is now case-insensitive (latest value wins).
+* **`stream()` leaked the transport client on error responses**: a non-2xx
+  streaming response now drains the unbuffered body so the streaming adapter's
+  owned `http.Client` is closed exactly once instead of leaking.
+
+### Changed
+* **`RequestOptions.retryPolicy` / `cachePolicy`** are now typed
+  `RetryPolicyInterface?` / `CachePolicyInterface?` (declared in `core`) instead
+  of `Object?`, giving compile-time safety. Existing code passing `RetryPolicy`
+  / `CachePolicy` instances is unaffected.
+
+### Dependencies
+* Promoted `crypto` to a direct dependency (used for APQ hashing).
+
+---
+
 ## 1.0.3
 
 **Release Date**: 2026-05-31  

@@ -111,7 +111,8 @@ void main() {
       expect(res.statusCode, 401);
     });
 
-    test('statusOverrides can force a status without a matching response example',
+    test(
+        'statusOverrides can force a status without a matching response example',
         () async {
       final client = ApiClient(
         ApiClientConfig.test(

@@ -26,7 +26,10 @@ import 'api_exception.dart';
 sealed class ApiResult<T> {
   const ApiResult();
 
+  /// True when this is a [Success].
   bool get isSuccess => this is Success<T>;
+
+  /// True when this is a [Failure].
   bool get isFailure => this is Failure<T>;
 
   /// The decoded response body. Non-null on [Success], null on [Failure].
@@ -56,10 +59,16 @@ sealed class ApiResult<T> {
         Failure<T>() => null,
       };
 
-  /// Response headers. Empty map on [Failure].
+  /// Response headers.
+  ///
+  /// On [Success] these are the response headers. On [Failure] they are
+  /// surfaced from [HttpError.headers] when the failure carried an HTTP
+  /// response (so header data is not silently dropped); for transport-level
+  /// failures with no response, an empty map.
   Map<String, String> get headers => switch (this) {
         Success<T>(:final headers) => headers,
-        Failure<T>() => const {},
+        Failure<T>(:final error) =>
+          error is HttpError ? error.headers : const {},
       };
 
   /// Pattern match success / failure exhaustively.

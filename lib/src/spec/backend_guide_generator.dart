@@ -8,11 +8,21 @@ import 'schema.dart';
 /// handed to a backend engineer so they can build the API surface the
 /// client expects.
 class BackendGuideGenerator {
+  /// Creates a generator for [spec], optionally emitting [framework]-specific
+  /// handler snippets.
   BackendGuideGenerator(this.spec, {this.framework = BackendFramework.none});
 
+  /// The spec this guide is generated from.
   final ApiSpec spec;
+
+  /// Target backend framework for the emitted code snippets.
   final BackendFramework framework;
 
+  // Fixed patterns reused across every endpoint — compiled once.
+  static final RegExp _placeholder = RegExp(r'\{([^}]+)\}');
+  static final RegExp _braces = RegExp(r'\{|\}');
+
+  /// Renders the full backend implementation guide in Markdown.
   String generate() {
     final buf = StringBuffer();
     buf.writeln('# ${spec.title} — Backend Implementation Guide');
@@ -505,7 +515,7 @@ class BackendGuideGenerator {
 
   String? _frameworkSnippet(EndpointSpec ep) {
     final route = ep.path.replaceAllMapped(
-      RegExp(r'\{([^}]+)\}'),
+      _placeholder,
       (m) => ':${m.group(1)}',
     );
     switch (framework) {
@@ -532,7 +542,7 @@ class BackendGuideGenerator {
 
   String _handlerName(EndpointSpec ep) {
     final parts = ep.path
-        .replaceAll(RegExp(r'\{|\}'), '')
+        .replaceAll(_braces, '')
         .split('/')
         .where((p) => p.isNotEmpty)
         .toList();
@@ -569,13 +579,25 @@ class BackendGuideGenerator {
   }
 }
 
+/// Backend framework that [BackendGuideGenerator] emits code snippets for.
 enum BackendFramework {
+  /// No framework; emit pseudocode only.
   none('plain', ''),
+
+  /// Node.js Express (JavaScript).
   express('express', 'js'),
+
+  /// Python FastAPI (Strawberry for GraphQL).
   fastapi('fastapi', 'python'),
+
+  /// Go Gin (gqlgen for GraphQL).
   gin('gin', 'go');
 
   const BackendFramework(this.name, this.lang);
+
+  /// Display name used in section headings.
   final String name;
+
+  /// Markdown code-fence language tag for emitted snippets.
   final String lang;
 }

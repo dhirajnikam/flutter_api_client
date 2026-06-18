@@ -27,7 +27,10 @@ String? findGeneratedSpecFile(String searchRoot) {
     if (entity is File && entity.path.endsWith('.g.dart')) {
       try {
         if (entity.readAsStringSync().contains(r'$generatedSpec')) {
-          return entity.path;
+          // Normalize to forward slashes so callers get a platform-independent
+          // path (Directory.listSync yields native `\` separators on Windows),
+          // consistent with packageImportFor / packageImportFromLibPath below.
+          return entity.path.replaceAll('\\', '/');
         }
       } catch (_) {}
     }
@@ -95,6 +98,7 @@ void main() {
 }
 
 String? _packageNameFromPubspec(String pubspec) {
-  final match = RegExp(r'^name:\s*([^\s#]+)', multiLine: true).firstMatch(pubspec);
+  final match =
+      RegExp(r'^name:\s*([^\s#]+)', multiLine: true).firstMatch(pubspec);
   return match?.group(1);
 }
