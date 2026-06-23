@@ -144,6 +144,10 @@ class ApiClientConfig {
 /// Every method returns an [ApiResult]; transport, HTTP, and decode failures
 /// are surfaced as a [Failure], never thrown. Pass a [decoder] to turn the
 /// JSON body into `T`; without one, `T` must match the raw decoded shape.
+@Deprecated(
+  'Single-implementation interface with no injection point. Depend on '
+  'ApiClient directly (Dart can fake concrete classes). To be removed in 2.0.0.',
+)
 abstract class ApiClientInterface {
   /// Sends a GET to [endpoint].
   Future<ApiResult<T>> get<T>(

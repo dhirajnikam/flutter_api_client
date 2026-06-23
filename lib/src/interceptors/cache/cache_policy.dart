@@ -32,7 +32,9 @@ class CachePolicy implements CachePolicyInterface {
   factory CachePolicy.cacheFirst({Duration ttl = const Duration(minutes: 5)}) =>
       CachePolicy(mode: CacheMode.cacheFirst, ttl: ttl);
 
-  /// Serve the cached entry immediately and revalidate in the background.
+  /// Serve a fresh cached entry immediately; when the entry is stale,
+  /// revalidate against the origin (sending `If-None-Match` when an ETag is
+  /// stored) before returning. Background revalidation is not yet implemented.
   factory CachePolicy.staleWhileRevalidate(Duration ttl) =>
       CachePolicy(mode: CacheMode.staleWhileRevalidate, ttl: ttl);
 

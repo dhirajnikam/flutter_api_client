@@ -1,12 +1,22 @@
 import 'dart:async';
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 
 import '../core/api_exception.dart';
 import '../http/http_adapter.dart';
 import '../interceptors/interceptor.dart';
 import 'token_storage.dart';
 
-/// Async function that refreshes the access token. Should return true on
-/// success (storage is expected to be updated with the new token).
+/// Async function that refreshes the access token. Returns true on success.
+///
+/// On success it MUST have written the new access token to the same
+/// [TokenStorage] the interceptor reads from, and MUST NOT complete until that
+/// write is observable — the retry re-reads the token via
+/// [TokenStorage.getAccessToken] immediately after this future resolves. Wrap a
+/// slow backend in [CachedTokenStorage] so the new token is readable from the
+/// in-memory cache the instant it is set, even while the disk write is still
+/// in flight.
 typedef RefreshTokenFn = Future<bool> Function();
 
 /// Attaches the auth token, retries on 401 with concurrent-safe refresh.
@@ -88,9 +98,13 @@ class AuthInterceptor extends Interceptor {
     return retry;
   }
 
-  /// Stable, non-reversible fingerprint of a token. Length + hashCode is
-  /// enough to detect "the token changed" without ever copying the secret.
-  String _fingerprint(String token) => '${token.length}:${token.hashCode}';
+  /// Stable, collision-resistant, non-reversible fingerprint of a token, used
+  /// only to detect "the token changed" between attempts. SHA-256 (not
+  /// `hashCode`, whose 32-bit space invites collisions that would mask a real
+  /// rotation and fire a redundant refresh). The fingerprint is never logged or
+  /// sent — its carrier header is internal and stripped before the wire.
+  String _fingerprint(String token) =>
+      sha256.convert(utf8.encode(token)).toString();
 
   Future<bool> _refreshOnce() {
     final inFlight = _inFlight;

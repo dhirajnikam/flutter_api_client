@@ -39,7 +39,7 @@
 ///
 /// ### Testing
 /// - [MockAdapter]: Route-based mocking with request capture
-/// - Built-in test suite with 244+ passing tests
+/// - Built-in test suite with 374+ passing tests
 /// - No external mock dependencies
 ///
 /// ## Quick Start

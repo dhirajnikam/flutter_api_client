@@ -1,3 +1,39 @@
+## Unreleased
+
+### Security
+* **`AuthInterceptor`**: the token-change fingerprint used by the concurrent-401
+  staleness guard now uses SHA-256 instead of `String.hashCode`, removing the
+  collision risk that could mask a real token rotation (and fire a redundant
+  refresh) and making the "non-reversible" guarantee actually hold. The
+  fingerprint remains internal and is stripped before the wire. The `refresh`
+  contract is now documented explicitly: it must persist the new token before
+  completing; wrap slow backends in `CachedTokenStorage`.
+
+### Fixed
+* **`TestGenerator`**: generated test source now escapes `'`, `$`, `\`, and
+  newlines in example bodies (previously emitted non-compiling Dart), and skips
+  endpoints whose HTTP method the client has no verb for (e.g. `HEAD`) instead
+  of emitting an uncompilable `client.head(...)` call.
+* **`CurlLogger`**: uses the portable `'\''` POSIX idiom to embed single quotes,
+  so emitted cURL commands stay paste-able when a header or body contains a quote.
+* **`bin/gen.dart`**: relative-import computation normalises path separators, so
+  `dart run flutter_api_client:gen` works on Windows.
+* **`Schema.validate`**: an unknown schema `type` now fails validation instead
+  of silently passing.
+* **`InMemoryOfflineQueueStore.drain`**: returns requests in `createdAt` order,
+  matching the `OfflineQueueStore` contract and `HiveOfflineQueueStore`.
+* **`CachedTokenStorage.clear`**: awaits the delegate before dropping the cache,
+  so a failed delegate clear no longer resurrects a "cleared" token on next read.
+
+### Changed
+* **`CachePolicy.staleWhileRevalidate`** docs now describe the actual behaviour
+  (serve-fresh, revalidate-on-stale); removed a dead internal revalidate header.
+
+### Deprecated
+* `ApiClientInterface` — single-implementation interface with no injection
+  point. Depend on `ApiClient` directly (Dart can fake concrete classes).
+  Scheduled for removal in 2.0.0.
+
 ## 1.1.0
 
 **Release Date**: 2026-06-17  

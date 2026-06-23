@@ -68,7 +68,10 @@ class CachedTokenStorage implements TokenStorage {
 
   @override
   Future<void> clear() async {
-    clearCache();
+    // Await the delegate first, then drop the cache. If the delegate clear
+    // fails, the cache still mirrors the (uncleared) backend instead of going
+    // empty and resurrecting the persisted token on the next read.
     await _delegate.clear();
+    clearCache();
   }
 }

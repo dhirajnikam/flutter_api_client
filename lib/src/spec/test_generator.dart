@@ -59,7 +59,19 @@ class TestGenerator {
     return buf.toString();
   }
 
+  // Verbs the generated client (ApiClient) actually exposes. A spec endpoint
+  // using anything else (e.g. HEAD) would emit `client.head(...)`, which does
+  // not compile — so skip it with a visible note instead.
+  static const _supportedMethods = {'GET', 'POST', 'PUT', 'PATCH', 'DELETE'};
+
   void _writeEndpointTests(StringBuffer buf, EndpointSpec ep) {
+    if (!_supportedMethods.contains(ep.method.toUpperCase())) {
+      buf.writeln(
+          '    // ${ep.method} ${ep.path} — skipped: ApiClient has no '
+          '${ep.method.toLowerCase()}() method.');
+      buf.writeln();
+      return;
+    }
     final baseUrl = spec.baseUrl;
     final methodKey = '${ep.method} ${ep.path}';
     final concretePath = ep.path
@@ -120,7 +132,7 @@ class TestGenerator {
 
   String _callLine(EndpointSpec ep, String path) {
     final method = ep.method.toLowerCase();
-    if (method == 'get' || method == 'delete' || method == 'head') {
+    if (method == 'get' || method == 'delete') {
       return "      final res = await client.$method<dynamic>('$path');";
     }
     final body = ep.request?.body;
@@ -130,17 +142,28 @@ class TestGenerator {
 
   String _dartLiteral(Object? value) {
     if (value == null) return 'null';
-    if (value is String) return "'$value'";
+    if (value is String) return "'${_escapeDartString(value)}'";
     if (value is num || value is bool) return '$value';
     if (value is Map) {
       final entries = value.entries
-          .map((e) => "'${e.key}': ${_dartLiteral(e.value)}")
+          .map((e) => '${_dartLiteral('${e.key}')}: ${_dartLiteral(e.value)}')
           .join(', ');
       return '{$entries}';
     }
     if (value is List) {
       return '[${value.map(_dartLiteral).join(', ')}]';
     }
-    return "'$value'";
+    return "'${_escapeDartString('$value')}'";
   }
+
+  /// Escapes [s] for a single-quoted Dart string literal. Without this, an
+  /// example body containing `'`, `$`, `\`, or a newline produces generated
+  /// test code that does not compile.
+  String _escapeDartString(String s) => s
+      .replaceAll(r'\', r'\\')
+      .replaceAll(r'$', r'\$')
+      .replaceAll("'", r"\'")
+      .replaceAll('\n', r'\n')
+      .replaceAll('\r', r'\r')
+      .replaceAll('\t', r'\t');
 }

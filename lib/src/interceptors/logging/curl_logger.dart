@@ -65,20 +65,26 @@ class CurlLogger extends Interceptor {
     req.headers.forEach((k, v) {
       final value =
           _normalizedRedactHeaders.contains(k.toLowerCase()) ? '<redacted>' : v;
-      buf.write(" -H '${k.replaceAll("'", r"\'")}: $value'");
+      buf.write(" -H '${_shellQuote('$k: $value')}'");
     });
     if (req.data != null && !req.isMultipart) {
       final body =
           req.data is String ? req.data as String : jsonEncode(req.data);
       final redacted = redactJsonBody(body, _normalizedRedactBodyKeys);
-      buf.write(" --data '${redacted.replaceAll("'", r"\'")}'");
+      buf.write(" --data '${_shellQuote(redacted)}'");
     }
     final url = buildUri(
       baseUrl: req.options.baseUrlOverride ?? '',
       endpoint: req.endpoint,
       queryParameters: req.options.queryParameters,
     ).toString();
-    buf.write(" '$url'");
+    buf.write(" '${_shellQuote(url)}'");
     return buf.toString();
   }
+
+  /// Escapes [s] for embedding inside a single-quoted POSIX shell string.
+  /// A literal `'` cannot be backslash-escaped inside single quotes; the
+  /// portable idiom closes the quote, emits an escaped quote, then reopens:
+  /// `'\''`. The previous `\'` produced a broken, non-pasteable command.
+  static String _shellQuote(String s) => s.replaceAll("'", "'\\''");
 }

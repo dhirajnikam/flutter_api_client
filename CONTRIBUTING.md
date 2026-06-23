@@ -125,7 +125,7 @@ void main() {
       // Arrange
       final client = ApiClient(ApiClientConfig.test(
         baseUrl: 'https://api.example.com',
-        adapter: MockAdapter()..stub('GET', '/endpoint', body: {}),
+        adapter: MockAdapter()..on('GET', '/endpoint', statusCode: 200, body: {}),
       ));
 
       // Act
@@ -180,7 +180,6 @@ Example:
 ```dart
 /// Executes an HTTP request with retry logic and caching.
 ///
-/// The [method] specifies the HTTP verb (GET, POST, etc.).
 /// [endpoint] is the path relative to [ApiClientConfig.baseUrl].
 ///
 /// Returns an [ApiResult<T>] containing either the decoded response
@@ -188,16 +187,14 @@ Example:
 ///
 /// Example:
 /// ```dart
-/// final result = await client.request<User>(
-///   'GET',
+/// final result = await client.get<User>(
 ///   'users/me',
 ///   decoder: User.fromJson,
 /// );
 /// ```
-Future<ApiResult<T>> request<T>(
-  String method,
+Future<ApiResult<T>> get<T>(
   String endpoint, {
-  Decoder<T>? decoder,
+  T Function(Object json)? decoder,
 }) async {
   // Implementation
 }
