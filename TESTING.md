@@ -15,7 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('GET /users returns list', () async {
     final adapter = MockAdapter()
-      ..stub('GET', '/users', statusCode: 200, body: {'users': []});
+      ..on('GET', '/users', statusCode: 200, body: {'users': []});
 
     final client = ApiClient(ApiClientConfig.test(
       baseUrl: 'https://api.example.com',

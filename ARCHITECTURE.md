@@ -263,6 +263,7 @@ ApiException (sealed)
 ├── CancelError         — User cancelled via CancelToken
 ├── HttpError           — Non-2xx status codes
 ├── ParseError          — JSON decode failures
+├── PayloadTooLargeError — Request/response body exceeds configured byte cap
 └── UnknownError        — Catch-all for unexpected errors
 ```
 
@@ -451,7 +452,7 @@ Full stack tests with real interceptor chains:
 
 ### Coverage
 
-Current: **107 tests, all passing**
+Current: **374 tests, all passing**
 
 Aim: >90% line coverage
 
@@ -483,7 +484,8 @@ Aim: >90% line coverage
 **Semantic Versioning**: MAJOR.MINOR.PATCH
 
 - **1.0.0**: Initial stable release
-- **1.0.1**: Bug fixes, docs improvements (current)
+- **1.0.x**: Bug fixes, docs improvements
+- **1.1.0**: Real streaming, offline-queue replay, hardened retries/cache/dedup (current)
 - **1.x.x**: New features, backwards compatible
 - **2.0.0**: Breaking changes
 
@@ -495,11 +497,13 @@ Aim: >90% line coverage
 
 ### Planned Enhancements
 
-1. **Streaming support**: `Stream<T>` for server-sent events
-2. **WebSocket adapter**: Full-duplex communication
-3. **Metrics**: Built-in telemetry (request counts, latency)
-4. **Circuit breaker**: Fail-fast when backend is unhealthy
-5. **Persistent cache**: SQLite/Hive backend for `CacheStore`
+1. **WebSocket adapter**: Full-duplex communication
+2. **Metrics**: Built-in telemetry (request counts, latency)
+3. **Circuit breaker**: Fail-fast when backend is unhealthy
+4. **Persistent cache**: SQLite/Hive backend for `CacheStore`
+
+> Note: streaming downloads shipped in 1.1.0 via `ApiClient.stream()` /
+> `HttpStreamResponse`; offline-queue replay shipped via `OfflineQueueReplayer`.
 
 ### Design Philosophy
 

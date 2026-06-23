@@ -30,7 +30,6 @@ class CacheInterceptor extends Interceptor {
   final Set<String> cacheMethods;
 
   static const _hitHeader = 'x-fac-cache-hit';
-  static const _revalHeader = 'x-fac-cache-revalidate';
 
   CachePolicy? _policyFor(InterceptedRequest req) {
     final override = req.options.cachePolicy;
@@ -75,7 +74,6 @@ class CacheInterceptor extends Interceptor {
         return ProceedResult(req);
       case CacheMode.staleWhileRevalidate:
         if (entry != null) {
-          req.headers[_revalHeader] = '1';
           if (entry.isFresh(policy.ttl)) {
             return ResolveResult(_toResponse(entry));
           }

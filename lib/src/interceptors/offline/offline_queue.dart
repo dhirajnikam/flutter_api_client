@@ -144,7 +144,15 @@ class InMemoryOfflineQueueStore implements OfflineQueueStore {
 
   @override
   Future<List<QueuedRequest>> drain() async {
-    final out = List<QueuedRequest>.from(_items);
+    // Honour the OfflineQueueStore.drain contract (oldest createdAt first),
+    // matching HiveOfflineQueueStore. Insertion order usually agrees, but a
+    // re-enqueued request appends out of createdAt order.
+    final out = List<QueuedRequest>.from(_items)
+      ..sort((a, b) {
+        final createdAt = a.createdAt.compareTo(b.createdAt);
+        if (createdAt != 0) return createdAt;
+        return a.id.compareTo(b.id);
+      });
     _items.clear();
     return out;
   }

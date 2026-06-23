@@ -8,10 +8,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_api_client/flutter_api_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Uint8List _b(String s) => Uint8List.fromList(utf8.encode(s));
+
+/// Mirrors AuthInterceptor._fingerprint for white-box fingerprint injection.
+String _fp(String token) => sha256.convert(utf8.encode(token)).toString();
 
 InterceptedRequest _req({
   String method = 'GET',
@@ -513,7 +517,7 @@ void main() {
       // NEW (rotated by a concurrent flow) by the time the 401 comes back.
       final req = _req(headers: {
         'Authorization': 'Bearer OLD',
-        'x-fac-auth-token-fp': '${'OLD'.length}:${'OLD'.hashCode}',
+        'x-fac-auth-token-fp': _fp('OLD'),
       });
       await storage.setAccessToken('NEW'); // rotated under us
 
@@ -546,7 +550,7 @@ void main() {
       );
       final req = _req(headers: {
         'Authorization': 'Bearer OLD',
-        'x-fac-auth-token-fp': '${'OLD'.length}:${'OLD'.hashCode}',
+        'x-fac-auth-token-fp': _fp('OLD'),
       });
       final res = AdapterResponse(
         statusCode: 401,

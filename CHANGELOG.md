@@ -1,12 +1,22 @@
 ## 1.1.0
 
-**Release Date**: 2026-06-17  
-**Type**: Minor Release (New features + resilience/performance fixes)  
+**Release Date**: 2026-06-23  
+**Type**: Minor Release (streaming, offline-queue replay, resilience + auth hardening, audit fixes)  
 **Breaking Changes**: None (additive; `RequestOptions.retryPolicy`/`cachePolicy` are now statically typed)
 
 This release adds a true streaming download path and an offline-queue replay
-engine, and hardens retries, caching, dedup, and GraphQL APQ. Fully backward
-compatible with 1.0.3.
+engine, hardens retries / caching / dedup / GraphQL APQ and the concurrent-401
+auth refresh flow, and fixes a set of codegen and documentation issues found in
+a full audit. Fully backward compatible with 1.0.3.
+
+### Security
+* **`AuthInterceptor`**: the token-change fingerprint used by the concurrent-401
+  staleness guard now uses SHA-256 instead of `String.hashCode`, removing the
+  collision risk that could mask a real token rotation (and fire a redundant
+  refresh) and making the "non-reversible" guarantee actually hold. The
+  fingerprint remains internal and is stripped before the wire. The `refresh`
+  contract is now documented explicitly: it must persist the new token before
+  completing; wrap slow backends in `CachedTokenStorage`.
 
 ### Added
 * **Offline queue replay engine**: `OfflineQueueReplayer` drains the queue in
@@ -52,12 +62,33 @@ compatible with 1.0.3.
 * **`stream()` leaked the transport client on error responses**: a non-2xx
   streaming response now drains the unbuffered body so the streaming adapter's
   owned `http.Client` is closed exactly once instead of leaking.
+* **`TestGenerator`**: generated test source now escapes `'`, `$`, `\`, and
+  newlines in example bodies (previously emitted non-compiling Dart), and skips
+  endpoints whose HTTP method the client has no verb for (e.g. `HEAD`) instead
+  of emitting an uncompilable `client.head(...)` call.
+* **`CurlLogger`**: uses the portable `'\''` POSIX idiom to embed single quotes,
+  so emitted cURL commands stay paste-able when a header or body contains a quote.
+* **`bin/gen.dart`**: relative-import computation normalises path separators, so
+  `dart run flutter_api_client:gen` works on Windows.
+* **`Schema.validate`**: an unknown schema `type` now fails validation instead
+  of silently passing.
+* **`InMemoryOfflineQueueStore.drain`**: returns requests in `createdAt` order,
+  matching the `OfflineQueueStore` contract and `HiveOfflineQueueStore`.
+* **`CachedTokenStorage.clear`**: awaits the delegate before dropping the cache,
+  so a failed delegate clear no longer resurrects a "cleared" token on next read.
 
 ### Changed
 * **`RequestOptions.retryPolicy` / `cachePolicy`** are now typed
   `RetryPolicyInterface?` / `CachePolicyInterface?` (declared in `core`) instead
   of `Object?`, giving compile-time safety. Existing code passing `RetryPolicy`
   / `CachePolicy` instances is unaffected.
+* **`CachePolicy.staleWhileRevalidate`** docs now describe the actual behaviour
+  (serve-fresh, revalidate-on-stale); removed a dead internal revalidate header.
+
+### Deprecated
+* `ApiClientInterface` — single-implementation interface with no injection
+  point. Depend on `ApiClient` directly (Dart can fake concrete classes).
+  Scheduled for removal in 2.0.0.
 
 ### Dependencies
 * Promoted `crypto` to a direct dependency (used for APQ hashing).

@@ -248,6 +248,10 @@ class Schema {
           }
         }
         break;
+      default:
+        // An unknown type silently passing validation is worse than a clear
+        // error: it would let a typo'd schema accept anything.
+        errors.add('$path: unknown schema type "$type"');
     }
     return errors;
   }

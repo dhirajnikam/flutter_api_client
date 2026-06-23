@@ -129,9 +129,12 @@ void main(List<String> args) async {
 }
 
 String _relativePath({required String from, required String to}) {
-  // Compute a relative path from [from] directory to [to] file.
-  final fromParts = from.split('/');
-  final toParts = to.split('/');
+  // Compute a relative path from [from] directory to [to] file. Normalise
+  // separators first: `Directory.current.path` is backslash-based on Windows,
+  // so splitting on '/' alone would treat the whole path as one segment and
+  // compute a wrong relative import.
+  final fromParts = from.replaceAll('\\', '/').split('/');
+  final toParts = to.replaceAll('\\', '/').split('/');
 
   // Find common prefix length.
   var common = 0;

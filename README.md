@@ -8,7 +8,7 @@ a Markdown API reference, and a backend implementation guide.
 
 [![pub package](https://img.shields.io/pub/v/flutter_api_client.svg)](https://pub.dev/packages/flutter_api_client)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-244%20passing-brightgreen)](#test-suite)
+[![Tests](https://img.shields.io/badge/tests-374%20passing-brightgreen)](#test-suite)
 
 ---
 
@@ -167,7 +167,7 @@ flutter test --concurrency=8
 ### Testing & Mocking
 - **MockAdapter**: Route-based mocking with request capture
 - **SpecMockAdapter**: Schema-validating mock from API spec
-- **Built-in test suite**: 244+ passing tests covering all features
+- **Built-in test suite**: 374+ passing tests covering all features
 - **No external mock libs**: Everything needed for testing included
 
 ### Spec-Driven Development (Unique Feature)
@@ -1320,7 +1320,7 @@ class MyAdapter implements HttpAdapter {
 
 ## Test suite
 
-**244 root-package tests + 4 example tests — all passing** (verified with
+**374 root-package tests + 4 example tests — all passing** (verified with
 `flutter test` at the repo root and in `example/`):
 
 ```text

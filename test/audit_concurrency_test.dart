@@ -15,6 +15,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_api_client/flutter_api_client.dart';
 // request_identity.dart is intentionally NOT part of the public surface (it is
 // internal bookkeeping). We import the src path directly to prove the identity
@@ -23,6 +24,10 @@ import 'package:flutter_api_client/src/interceptors/request_identity.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Uint8List _b(String s) => Uint8List.fromList(utf8.encode(s));
+
+/// Mirrors AuthInterceptor._fingerprint so white-box tests can inject the
+/// fingerprint a request would have carried for [token].
+String _fp(String token) => sha256.convert(utf8.encode(token)).toString();
 
 InterceptedRequest _req({
   String method = 'GET',
@@ -102,7 +107,7 @@ void main() {
       // get 401 simultaneously. The staleness guard must NOT short-circuit
       // (the stored token still equals what they used), so all eight reach
       // _refreshOnce — which must collapse to a single refresh().
-      final fp = '${'OLD'.length}:${'OLD'.hashCode}';
+      final fp = _fp('OLD');
       final futures = List.generate(8, (_) {
         final r = _req(headers: {
           'Authorization': 'Bearer OLD',
@@ -133,7 +138,7 @@ void main() {
           return true;
         },
       );
-      final fp = '${'OLD'.length}:${'OLD'.hashCode}';
+      final fp = _fp('OLD');
       AdapterResponse res401() => AdapterResponse(
           statusCode: 401, headers: const {}, bodyBytes: Uint8List(0));
 
@@ -157,7 +162,7 @@ void main() {
           throw const NetworkError('refresh endpoint down');
         },
       );
-      final fp = '${'OLD'.length}:${'OLD'.hashCode}';
+      final fp = _fp('OLD');
       AdapterResponse res401() => AdapterResponse(
           statusCode: 401, headers: const {}, bodyBytes: Uint8List(0));
 
@@ -192,7 +197,7 @@ void main() {
       final r = await within(auth.onResponse(
         _req(headers: {
           'Authorization': 'Bearer OLD',
-          'x-fac-auth-token-fp': '${'OLD'.length}:${'OLD'.hashCode}',
+          'x-fac-auth-token-fp': _fp('OLD'),
         }),
         AdapterResponse(
             statusCode: 401, headers: const {}, bodyBytes: Uint8List(0)),
