@@ -194,6 +194,20 @@ abstract class ApiClientInterface {
     RequestOptions? options,
     T Function(Object json)? decoder,
   });
+
+  /// Sends a QUERY with [data] as the request body.
+  ///
+  /// QUERY is a safe, idempotent method — like GET, but it carries a request
+  /// body so complex queries can be expressed without cramming them into the
+  /// URL. See the IETF specification:
+  /// <https://www.ietf.org/archive/id/draft-ietf-httpbis-safe-method-w-body-latest.html>.
+  Future<ApiResult<T>> query<T>(
+    String endpoint,
+    dynamic data, {
+    bool includeToken = true,
+    RequestOptions? options,
+    T Function(Object json)? decoder,
+  });
 }
 
 /// HTTP API client with pluggable transport, interceptors, retries, caching,
@@ -373,6 +387,20 @@ class ApiClient implements ApiClientInterface {
   }) =>
       _request<T>('DELETE', endpoint,
           includeToken: includeToken, options: options, decoder: decoder);
+
+  @override
+  Future<ApiResult<T>> query<T>(
+    String endpoint,
+    dynamic data, {
+    bool includeToken = true,
+    RequestOptions? options,
+    T Function(Object json)? decoder,
+  }) =>
+      _request<T>('QUERY', endpoint,
+          data: data,
+          includeToken: includeToken,
+          options: options,
+          decoder: decoder);
 
   Future<AdapterResponse> _send({
     required String method,

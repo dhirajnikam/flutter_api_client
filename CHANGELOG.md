@@ -1,3 +1,12 @@
+## Unreleased
+
+### Added
+* **HTTP `QUERY` method**: new `ApiClient.query<T>(endpoint, data, …)` convenience
+  method for the safe, idempotent QUERY method, which carries a request body so
+  complex queries live in the body instead of the URL. See the official IETF
+  specification:
+  <https://www.ietf.org/archive/id/draft-ietf-httpbis-safe-method-w-body-latest.html>.
+
 ## 1.1.0
 
 **Release Date**: 2026-06-23  
