@@ -1,11 +1,14 @@
-## Unreleased
+## 1.2.0
+
+**Release Date**: 2026-07-07  
+**Type**: Minor Release (additive)  
+**Breaking Changes**: None (fully backward compatible with 1.1.0)
 
 ### Added
 * **HTTP `QUERY` method**: new `ApiClient.query<T>(endpoint, data, …)` convenience
-  method for the safe, idempotent QUERY method, which carries a request body so
-  complex queries live in the body instead of the URL. See the official IETF
-  specification:
-  <https://www.ietf.org/archive/id/draft-ietf-httpbis-safe-method-w-body-latest.html>.
+  method for the safe, idempotent, cacheable QUERY method, which carries a request
+  body so complex queries live in the body instead of the URL. Standardized in
+  RFC 10008: <https://www.rfc-editor.org/rfc/rfc10008.html>.
 
 ## 1.1.0
 

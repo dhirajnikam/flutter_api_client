@@ -334,9 +334,9 @@ await client.put('posts/1',   {'title': 'Updated'});
 await client.patch('posts/1', {'title': 'Patched'});
 await client.delete('posts/1');
 
-// QUERY — safe, idempotent read that carries a request body, so complex
-// queries live in the body instead of the URL. See the official spec:
-// https://www.ietf.org/archive/id/draft-ietf-httpbis-safe-method-w-body-latest.html
+// QUERY — safe, idempotent, cacheable read that carries a request body, so
+// complex queries live in the body instead of the URL. Standardized in
+// RFC 10008: https://www.rfc-editor.org/rfc/rfc10008.html
 final res = await client.query<List<dynamic>>(
   'posts/search',
   {'filter': {'author': 'ada'}, 'sort': 'created_at'},

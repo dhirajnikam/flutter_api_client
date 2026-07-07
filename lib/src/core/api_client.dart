@@ -197,10 +197,10 @@ abstract class ApiClientInterface {
 
   /// Sends a QUERY with [data] as the request body.
   ///
-  /// QUERY is a safe, idempotent method — like GET, but it carries a request
-  /// body so complex queries can be expressed without cramming them into the
-  /// URL. See the IETF specification:
-  /// <https://www.ietf.org/archive/id/draft-ietf-httpbis-safe-method-w-body-latest.html>.
+  /// QUERY is a safe, idempotent, cacheable method — like GET, but it carries
+  /// a request body so complex queries can be expressed without cramming them
+  /// into the URL. Standardized in RFC 10008:
+  /// <https://www.rfc-editor.org/rfc/rfc10008.html>.
   Future<ApiResult<T>> query<T>(
     String endpoint,
     dynamic data, {
