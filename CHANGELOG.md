@@ -1,6 +1,6 @@
 ## 1.2.0
 
-**Release Date**: 2026-07-07  
+**Release Date**: 2026-07-08  
 **Type**: Minor Release (additive)  
 **Breaking Changes**: None (fully backward compatible with 1.1.0)
 
