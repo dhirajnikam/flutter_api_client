@@ -64,6 +64,12 @@
 /// );
 /// ```
 ///
+/// ## Version 1.2.0
+/// - `ApiClient.query<T>()`: the safe, idempotent, cacheable HTTP QUERY method
+///   (RFC 10008) — carries a request body so complex queries stay out of the URL
+/// - Codegen builders no longer `auto_apply` to every dependent; runtime-only
+///   consumers skip the analyzer-backed build step (opt in via `build.yaml`)
+///
 /// ## Version 1.1.0
 /// - Real streaming downloads via `ApiClient.stream()` / [HttpStreamResponse]
 ///   ([StreamingHttpAdapter] capability; buffering fallback when unsupported)

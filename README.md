@@ -215,7 +215,7 @@ flutter test --concurrency=8
 ```yaml
 # pubspec.yaml
 dependencies:
-  flutter_api_client: ^1.1.0
+  flutter_api_client: ^1.2.0
 ```
 
 ```bash
