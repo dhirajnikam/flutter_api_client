@@ -3,7 +3,8 @@
 /// ## Key Features
 ///
 /// ### Core HTTP Client
-/// - Type-safe generic methods: `get<T>`, `post<T>`, `put<T>`, `patch<T>`, `delete<T>`
+/// - Type-safe generic methods: `get<T>`, `post<T>`, `put<T>`, `patch<T>`,
+///   `delete<T>`, and `query<T>` (the safe-with-body HTTP QUERY method)
 /// - Sealed `ApiResult<T>` with exhaustive `Success`/`Failure` pattern matching
 /// - Custom decoders to transform JSON directly to your model types
 /// - Multiple response modes: JSON, bytes, and plain text (real streaming is

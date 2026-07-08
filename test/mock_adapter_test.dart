@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_api_client/flutter_api_client.dart';
@@ -41,6 +42,35 @@ void main() {
       await client.post<dynamic>('echo', {'x': 1});
       expect(mock.received, hasLength(1));
       expect(mock.received.first.method, 'POST');
+    });
+
+    test('query sends a QUERY method with a request body', () async {
+      final mock = MockAdapter()
+        ..on(
+          'QUERY',
+          RegExp(r'/posts/search$'),
+          statusCode: 200,
+          body: [
+            {'id': 1}
+          ],
+        );
+      final client = ApiClient(
+        ApiClientConfig.test(baseUrl: 'https://api.example.com', adapter: mock),
+      );
+      final res = await client.query<List<dynamic>>(
+        'posts/search',
+        {'filter': 'ada'},
+      );
+      expect(res.isSuccess, true);
+      expect(res.statusCode, 200);
+      expect(res.data, [
+        {'id': 1}
+      ]);
+      expect(mock.received, hasLength(1));
+      expect(mock.received.first.method, 'QUERY');
+      final sent = jsonDecode(utf8.decode(mock.received.first.body as List<int>))
+          as Map<String, dynamic>;
+      expect(sent, {'filter': 'ada'});
     });
   });
 

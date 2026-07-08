@@ -49,10 +49,25 @@ a Markdown API reference, and a backend implementation guide.
 
 ```yaml
 dependencies:
-  flutter_api_client: ^1.1.0
+  flutter_api_client: ^1.2.0
 
 dev_dependencies:
   build_runner: ^2.15.0
+```
+
+If you use the code generator, opt the builders into your project's
+`build.yaml` (they no longer auto-apply to every consumer, so apps that only
+use the runtime client don't pay the codegen/analyzer cost):
+
+```yaml
+# build.yaml
+targets:
+  $default:
+    builders:
+      flutter_api_client|api_spec_builder:
+        enabled: true
+      flutter_api_client|api_spec_test_builder:
+        enabled: true
 ```
 
 **2. Define your spec and generate files**
@@ -333,6 +348,14 @@ final res = await client.post<Map<String, dynamic>>(
 await client.put('posts/1',   {'title': 'Updated'});
 await client.patch('posts/1', {'title': 'Patched'});
 await client.delete('posts/1');
+
+// QUERY — safe, idempotent, cacheable read that carries a request body, so
+// complex queries live in the body instead of the URL. Standardized in
+// RFC 10008: https://www.rfc-editor.org/rfc/rfc10008.html
+final res = await client.query<List<dynamic>>(
+  'posts/search',
+  {'filter': {'author': 'ada'}, 'sort': 'created_at'},
+);
 
 // Per-request options
 final res = await client.get<dynamic>(

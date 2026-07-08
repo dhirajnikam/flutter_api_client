@@ -1,3 +1,21 @@
+## 1.2.0
+
+**Release Date**: 2026-07-07  
+**Type**: Minor Release (additive)  
+**Breaking Changes**: None (fully backward compatible with 1.1.0)
+
+### Added
+* **HTTP `QUERY` method**: new `ApiClient.query<T>(endpoint, data, …)` convenience
+  method for the safe, idempotent, cacheable QUERY method, which carries a request
+  body so complex queries live in the body instead of the URL. Standardized in
+  RFC 10008: <https://www.rfc-editor.org/rfc/rfc10008.html>.
+
+### Changed
+* **Wider install compatibility**: the codegen builders no longer `auto_apply` to
+  every dependent (`auto_apply: none`). Apps that only use the runtime HTTP client
+  no longer trigger the analyzer-backed build step. If you use the generator,
+  opt the builders in via your project's `build.yaml` — see the README quick-start.
+
 ## 1.1.0
 
 **Release Date**: 2026-06-23  
