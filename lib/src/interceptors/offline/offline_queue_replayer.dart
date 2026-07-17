@@ -1,8 +1,24 @@
+import 'dart:async';
+
 import '../../core/api_client.dart';
 import '../../core/api_exception.dart';
 import '../../core/api_result.dart';
 import '../../core/request_options.dart';
 import 'offline_queue.dart';
+
+/// What happened to a single request during a replay pass.
+enum ReplayOutcome {
+  /// Replayed successfully and dropped from the queue.
+  succeeded,
+
+  /// Failed transiently and put back for a later pass.
+  reEnqueued,
+
+  /// Dropped without success — either the server rejected it (non-transient) or
+  /// it exhausted `maxAttempts`. This is the terminal failure an optimistic
+  /// layer should roll back on.
+  deadLettered,
+}
 
 /// Outcome of an [OfflineQueueReplayer.replay] pass.
 class OfflineReplayReport {
@@ -42,7 +58,8 @@ class OfflineReplayReport {
 /// listener; this package does not bundle one to stay dependency-light).
 ///
 /// Safety properties:
-/// - Requests replay in `createdAt` order (the stores sort on drain).
+/// - Requests replay in priority-then-`createdAt` order (the stores sort on
+///   drain); pass [compare] to override the order entirely.
 /// - Each request goes through `client`, so a fresh auth token is attached —
 ///   queued requests intentionally persist no `Authorization` header.
 /// - A request that fails transiently is re-enqueued with an incremented
@@ -60,6 +77,8 @@ class OfflineQueueReplayer {
     required this.store,
     required this.client,
     this.maxAttempts = 3,
+    this.compare,
+    this.onOutcome,
   });
 
   /// Queue to drain and replay from.
@@ -71,10 +90,24 @@ class OfflineQueueReplayer {
   /// Maximum total replay attempts before a request is dead-lettered.
   final int maxAttempts;
 
+  /// Optional replay-order override. When `null`, the store's own drain order is
+  /// used (priority-desc, then oldest first — see `compareQueuedRequests`). When
+  /// set, the drained batch is re-sorted with this comparator before replay, so
+  /// callers can order by endpoint, method, custom header, or anything else.
+  final Comparator<QueuedRequest>? compare;
+
+  /// Optional per-request callback fired after each request's terminal outcome
+  /// in a pass; awaited before moving to the next request. An optimistic layer
+  /// uses it to commit or roll back local state ([OfflineMutations] wires this
+  /// automatically). A throw aborts the remaining requests in the pass.
+  final FutureOr<void> Function(QueuedRequest request, ReplayOutcome outcome)?
+      onOutcome;
+
   /// Drains the queue and replays every pending request once, returning a
   /// report of how each one fared.
   Future<OfflineReplayReport> replay() async {
     final pending = await store.drain();
+    if (compare != null) pending.sort(compare!);
     var succeeded = 0;
     var reEnqueued = 0;
     var deadLettered = 0;
@@ -98,23 +131,28 @@ class OfflineQueueReplayer {
 
       if (isSuccess) {
         succeeded++;
+        await onOutcome?.call(request, ReplayOutcome.succeeded);
         continue;
       }
       if (!transient) {
         deadLettered++;
+        await onOutcome?.call(request, ReplayOutcome.deadLettered);
         continue;
       }
       final next = request.withAttempt();
       if (next.attempts >= maxAttempts) {
         deadLettered++;
+        await onOutcome?.call(request, ReplayOutcome.deadLettered);
       } else {
         // Re-enqueue defensively: if persistence itself fails we still want the
         // remaining pending requests to be processed, so swallow and count it.
         try {
           await store.enqueue(next);
           reEnqueued++;
+          await onOutcome?.call(request, ReplayOutcome.reEnqueued);
         } catch (_) {
           deadLettered++;
+          await onOutcome?.call(request, ReplayOutcome.deadLettered);
         }
       }
     }

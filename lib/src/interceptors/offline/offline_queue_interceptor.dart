@@ -10,6 +10,7 @@ class OfflineQueueInterceptor extends Interceptor {
     required this.store,
     this.methods = const {'POST', 'PUT', 'PATCH', 'DELETE'},
     this.isOnline,
+    this.priorityOf,
   });
 
   /// Backend the failed mutations are queued into.
@@ -22,6 +23,12 @@ class OfflineQueueInterceptor extends Interceptor {
   /// queued (they are genuine failures, not offline conditions). When `null`,
   /// the request is always treated as offline on a network/timeout error.
   final Future<bool> Function()? isOnline;
+
+  /// Optional per-request replay priority. Returns the [QueuedRequest.priority]
+  /// to store for [req]; higher replays first. Defaults to `0` for every
+  /// request when `null`. Use it to prioritise, say, DELETEs over POSTs, or
+  /// requests to a critical endpoint.
+  final int Function(InterceptedRequest req)? priorityOf;
 
   /// Monotonic per-instance sequence appended to each id. Two mutations to the
   /// same endpoint inside one microsecond (or whose `endpoint.hashCode`
@@ -53,6 +60,7 @@ class OfflineQueueInterceptor extends Interceptor {
         headers: _queuedHeaders(req.headers),
         body: req.data,
         createdAt: now,
+        priority: priorityOf?.call(req) ?? 0,
       ),
     );
     return RejectResult(error);

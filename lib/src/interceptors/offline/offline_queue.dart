@@ -19,6 +19,18 @@ abstract class OfflineQueueStore {
   Future<int> get length;
 }
 
+/// Default replay ordering: higher [QueuedRequest.priority] first, then oldest
+/// [QueuedRequest.createdAt] first, with [QueuedRequest.id] as a stable final
+/// tiebreak. Stores sort by this on [OfflineQueueStore.drain]; the replayer can
+/// override it with a custom comparator.
+int compareQueuedRequests(QueuedRequest a, QueuedRequest b) {
+  final byPriority = b.priority.compareTo(a.priority); // higher first
+  if (byPriority != 0) return byPriority;
+  final byCreatedAt = a.createdAt.compareTo(b.createdAt); // oldest first
+  if (byCreatedAt != 0) return byCreatedAt;
+  return a.id.compareTo(b.id);
+}
+
 /// A request captured while offline, pending replay.
 class QueuedRequest {
   /// Creates a queued request record.
@@ -30,6 +42,7 @@ class QueuedRequest {
     this.body,
     required this.createdAt,
     this.attempts = 0,
+    this.priority = 0,
   });
 
   /// Unique id within the queue; also the storage key for keyed stores.
@@ -54,6 +67,11 @@ class QueuedRequest {
   /// requests that keep failing instead of replaying them forever.
   final int attempts;
 
+  /// Replay priority; higher values replay first (default `0`). Ties break on
+  /// [createdAt] then [id]. Override ordering wholesale with a comparator on the
+  /// replayer if priority alone is not enough.
+  final int priority;
+
   /// Returns a copy with [attempts] incremented by one.
   QueuedRequest withAttempt() => QueuedRequest(
         id: id,
@@ -63,6 +81,7 @@ class QueuedRequest {
         body: body,
         createdAt: createdAt,
         attempts: attempts + 1,
+        priority: priority,
       );
 
   /// JSON representation for persistent stores.
@@ -74,6 +93,7 @@ class QueuedRequest {
         'body': body,
         'createdAt': createdAt.toIso8601String(),
         'attempts': attempts,
+        'priority': priority,
       };
 
   /// Strict parse; throws [FormatException] on a malformed record.
@@ -120,6 +140,11 @@ class QueuedRequest {
         ? attemptsRaw
         : (attemptsRaw is num ? attemptsRaw.toInt() : 0);
 
+    final priorityRaw = json['priority'];
+    final priority = priorityRaw is int
+        ? priorityRaw
+        : (priorityRaw is num ? priorityRaw.toInt() : 0);
+
     return QueuedRequest(
       id: id,
       method: method,
@@ -128,6 +153,7 @@ class QueuedRequest {
       body: json['body'],
       createdAt: createdAt,
       attempts: attempts < 0 ? 0 : attempts,
+      priority: priority,
     );
   }
 }
@@ -144,15 +170,10 @@ class InMemoryOfflineQueueStore implements OfflineQueueStore {
 
   @override
   Future<List<QueuedRequest>> drain() async {
-    // Honour the OfflineQueueStore.drain contract (oldest createdAt first),
-    // matching HiveOfflineQueueStore. Insertion order usually agrees, but a
-    // re-enqueued request appends out of createdAt order.
-    final out = List<QueuedRequest>.from(_items)
-      ..sort((a, b) {
-        final createdAt = a.createdAt.compareTo(b.createdAt);
-        if (createdAt != 0) return createdAt;
-        return a.id.compareTo(b.id);
-      });
+    // Honour the OfflineQueueStore.drain contract (priority first, then oldest
+    // createdAt), matching HiveOfflineQueueStore. Insertion order usually agrees
+    // on createdAt, but priority and re-enqueues require an explicit sort.
+    final out = List<QueuedRequest>.from(_items)..sort(compareQueuedRequests);
     _items.clear();
     return out;
   }
@@ -197,11 +218,7 @@ class HiveOfflineQueueStore implements OfflineQueueStore {
       }
       if (parsed != null) out.add(parsed);
     }
-    out.sort((a, b) {
-      final createdAt = a.createdAt.compareTo(b.createdAt);
-      if (createdAt != 0) return createdAt;
-      return a.id.compareTo(b.id);
-    });
+    out.sort(compareQueuedRequests);
     await box.clear();
     return out;
   }
