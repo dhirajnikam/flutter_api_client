@@ -40,7 +40,7 @@
 ///
 /// ### Testing
 /// - [MockAdapter]: Route-based mocking with request capture
-/// - Built-in test suite with 374+ passing tests
+/// - Built-in test suite with 400+ passing tests
 /// - No external mock dependencies
 ///
 /// ## Quick Start
@@ -64,6 +64,16 @@
 /// );
 /// ```
 ///
+/// ## Version 1.3.0
+/// - Deep, backward-compatible customization on [ApiClientConfig]: configurable
+///   default headers &amp; locale (`defaultHeaders`, `defaultAccept`,
+///   `defaultAcceptLanguage`, `defaultContentType`), pluggable serialization
+///   ([RequestBodySerializer], [ResponseJsonCodec], [Charset]), configurable
+///   query encoding ([QueryEncoder]), a custom auth header name, and a custom
+///   success/failure status predicate (`isSuccessStatus`)
+/// - Custom retry backoff via `RetryPolicy.backoff`
+/// - [ClientCustomization] bundles these knobs for the convenience factories
+///
 /// ## Version 1.1.0
 /// - Real streaming downloads via `ApiClient.stream()` / [HttpStreamResponse]
 ///   ([StreamingHttpAdapter] capability; buffering fallback when unsupported)
@@ -85,6 +95,7 @@ export 'src/core/policies.dart';
 export 'src/core/query.dart';
 export 'src/core/request_options.dart';
 export 'src/core/response_type.dart';
+export 'src/core/serialization.dart';
 
 // Auth
 export 'src/auth/auth_interceptor.dart';

@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import '../auth/auth_interceptor.dart';
 import '../auth/token_storage.dart';
 import '../http/default_http_adapter.dart';
@@ -16,6 +14,11 @@ import 'form_data.dart';
 import 'query.dart';
 import 'request_options.dart';
 import 'response_type.dart';
+import 'serialization.dart';
+
+/// Default success predicate: the standard 2xx range.
+bool _defaultIsSuccessStatus(int statusCode) =>
+    statusCode >= 200 && statusCode < 300;
 
 /// Configuration for [ApiClient].
 class ApiClientConfig {
@@ -32,7 +35,17 @@ class ApiClientConfig {
     this.responseHandler,
     this.interceptors = const [],
     this.adapter,
-  });
+    this.defaultHeaders,
+    this.defaultAccept = 'application/json',
+    this.defaultAcceptLanguage = 'en',
+    this.defaultContentType = 'application/json',
+    this.authHeaderName = 'Authorization',
+    this.bodySerializer = const JsonRequestBodySerializer(),
+    this.responseJsonCodec = const DefaultResponseJsonCodec(),
+    this.charset = const Utf8Charset(),
+    this.queryEncoder = const QueryEncoder(),
+    bool Function(int statusCode)? isSuccessStatus,
+  }) : isSuccessStatus = isSuccessStatus ?? _defaultIsSuccessStatus;
 
   /// Base URL every endpoint is resolved against.
   final String baseUrl;
@@ -73,7 +86,51 @@ class ApiClientConfig {
   /// Transport. Defaults to [DefaultHttpAdapter] when omitted.
   final HttpAdapter? adapter;
 
+  /// When non-null, replaces the entire built-in default-header block
+  /// (`Accept`, `Accept-Language`, and — for non-multipart — `Content-Type`).
+  /// Per-request `headers`/`extraHeaders` still override these. When null, the
+  /// granular [defaultAccept]/[defaultAcceptLanguage]/[defaultContentType]
+  /// fields are used.
+  final Map<String, String>? defaultHeaders;
+
+  /// Default `Accept` header. Ignored when [defaultHeaders] is set.
+  final String defaultAccept;
+
+  /// Default `Accept-Language` header (the client's locale). Ignored when
+  /// [defaultHeaders] is set.
+  final String defaultAcceptLanguage;
+
+  /// Default `Content-Type` for non-multipart requests. Ignored when
+  /// [defaultHeaders] is set.
+  final String defaultContentType;
+
+  /// Header the auth token is written to by the built-in auth interceptor.
+  /// Defaults to `Authorization`.
+  final String authHeaderName;
+
+  /// Encodes request bodies before they reach the transport. Defaults to JSON.
+  final RequestBodySerializer bodySerializer;
+
+  /// Parses JSON response bodies. Defaults to `dart:convert`'s `jsonDecode`.
+  final ResponseJsonCodec responseJsonCodec;
+
+  /// Charset used to encode string bodies and decode response bytes. Defaults
+  /// to UTF-8.
+  final Charset charset;
+
+  /// Serializes URL query parameters. Defaults to repeated-key lists and
+  /// bracketed nested maps.
+  final QueryEncoder queryEncoder;
+
+  /// Decides whether a response status code is a success (`Success`) or a
+  /// failure (`Failure`). Defaults to `200 <= code < 300`.
+  final bool Function(int statusCode) isSuccessStatus;
+
   /// Config whose auth token comes from a [getAccessToken] callback.
+  ///
+  /// Pass [customization] to configure default headers, serialization, query
+  /// encoding, the auth header name, or the success predicate through a single
+  /// parameter (see [ClientCustomization]).
   factory ApiClientConfig.withToken({
     required String baseUrl,
     required Future<String?> Function() getAccessToken,
@@ -84,8 +141,9 @@ class ApiClientConfig {
     int? maxRequestBodyBytes,
     int? maxResponseBodyBytes,
     List<Interceptor> interceptors = const [],
+    ClientCustomization customization = const ClientCustomization(),
   }) =>
-      ApiClientConfig(
+      _build(
         baseUrl: baseUrl,
         getAccessToken: getAccessToken,
         refreshToken: refreshToken,
@@ -95,9 +153,13 @@ class ApiClientConfig {
         maxRequestBodyBytes: maxRequestBodyBytes,
         maxResponseBodyBytes: maxResponseBodyBytes,
         interceptors: interceptors,
+        customization: customization,
       );
 
   /// Config whose auth token is read from (and refreshed into) [tokenStorage].
+  ///
+  /// Pass [customization] to configure the extra options described on
+  /// [ClientCustomization].
   factory ApiClientConfig.withStorage({
     required String baseUrl,
     required TokenStorage tokenStorage,
@@ -108,8 +170,9 @@ class ApiClientConfig {
     int? maxRequestBodyBytes,
     int? maxResponseBodyBytes,
     List<Interceptor> interceptors = const [],
+    ClientCustomization customization = const ClientCustomization(),
   }) =>
-      ApiClientConfig(
+      _build(
         baseUrl: baseUrl,
         tokenStorage: tokenStorage,
         refreshToken: refreshToken,
@@ -119,23 +182,73 @@ class ApiClientConfig {
         maxRequestBodyBytes: maxRequestBodyBytes,
         maxResponseBodyBytes: maxResponseBodyBytes,
         interceptors: interceptors,
+        customization: customization,
       );
 
   /// Config with no auth, wired to an injected [adapter] (e.g. a mock) for
   /// tests.
+  ///
+  /// Pass [customization] to exercise custom serialization/query encoding in
+  /// tests (see [ClientCustomization]).
   factory ApiClientConfig.test({
     required String baseUrl,
     required HttpAdapter adapter,
     int? maxRequestBodyBytes,
     int? maxResponseBodyBytes,
     List<Interceptor> interceptors = const [],
+    ClientCustomization customization = const ClientCustomization(),
   }) =>
-      ApiClientConfig(
+      _build(
         baseUrl: baseUrl,
         adapter: adapter,
         maxRequestBodyBytes: maxRequestBodyBytes,
         maxResponseBodyBytes: maxResponseBodyBytes,
         interceptors: interceptors,
+        customization: customization,
+      );
+
+  /// Shared builder that resolves a [ClientCustomization] bundle onto the
+  /// primary constructor, keeping the null-means-default semantics in one place
+  /// so the three factories stay in sync.
+  static ApiClientConfig _build({
+    required String baseUrl,
+    TokenStorage? tokenStorage,
+    Future<String?> Function()? getAccessToken,
+    Future<bool> Function()? refreshToken,
+    Map<String, String> extraHeaders = const {},
+    Duration connectTimeout = const Duration(seconds: 30),
+    String authScheme = 'Bearer',
+    int? maxRequestBodyBytes,
+    int? maxResponseBodyBytes,
+    List<Interceptor> interceptors = const [],
+    HttpAdapter? adapter,
+    required ClientCustomization customization,
+  }) =>
+      ApiClientConfig(
+        baseUrl: baseUrl,
+        tokenStorage: tokenStorage,
+        getAccessToken: getAccessToken,
+        refreshToken: refreshToken,
+        extraHeaders: extraHeaders,
+        connectTimeout: connectTimeout,
+        authScheme: authScheme,
+        maxRequestBodyBytes: maxRequestBodyBytes,
+        maxResponseBodyBytes: maxResponseBodyBytes,
+        interceptors: interceptors,
+        adapter: adapter,
+        defaultHeaders: customization.defaultHeaders,
+        defaultAccept: customization.defaultAccept ?? 'application/json',
+        defaultAcceptLanguage: customization.defaultAcceptLanguage ?? 'en',
+        defaultContentType:
+            customization.defaultContentType ?? 'application/json',
+        authHeaderName: customization.authHeaderName ?? 'Authorization',
+        bodySerializer:
+            customization.bodySerializer ?? const JsonRequestBodySerializer(),
+        responseJsonCodec:
+            customization.responseJsonCodec ?? const DefaultResponseJsonCodec(),
+        charset: customization.charset ?? const Utf8Charset(),
+        queryEncoder: customization.queryEncoder ?? const QueryEncoder(),
+        isSuccessStatus: customization.isSuccessStatus,
       );
 }
 
@@ -234,6 +347,7 @@ class ApiClient implements ApiClientInterface {
           storage: c.tokenStorage!,
           refresh: c.refreshToken,
           authScheme: c.authScheme,
+          headerName: c.authHeaderName,
         ),
       ];
     }
@@ -243,6 +357,7 @@ class ApiClient implements ApiClientInterface {
           storage: _CallbackTokenStorage(c.getAccessToken!),
           refresh: c.refreshToken,
           authScheme: c.authScheme,
+          headerName: c.authHeaderName,
         ),
       ];
     }
@@ -271,7 +386,7 @@ class ApiClient implements ApiClientInterface {
         options: options,
       );
       final responseType = options?.responseType ?? ResponseType.json;
-      final isSuccess = res.statusCode >= 200 && res.statusCode < 300;
+      final isSuccess = _config.isSuccessStatus(res.statusCode);
       try {
         final parsed = switch (isSuccess) {
           true => _decodeSuccessBody<T>(res, responseType, decoder),
@@ -447,7 +562,7 @@ class ApiClient implements ApiClientInterface {
         data: data,
       );
       final res = await _chain.run(request: req, transport: _streamTransport);
-      if (res.statusCode >= 200 && res.statusCode < 300) {
+      if (_config.isSuccessStatus(res.statusCode)) {
         final streamed = HttpStreamResponse(
           statusCode: res.statusCode,
           headers: res.headers,
@@ -497,6 +612,7 @@ class ApiClient implements ApiClientInterface {
       baseUrl: req.options.baseUrlOverride ?? _config.baseUrl,
       endpoint: req.endpoint,
       queryParameters: req.options.queryParameters,
+      encoder: _config.queryEncoder,
     );
     final payload = _buildPayload(req.data, isMultipart: req.isMultipart);
     final adapterRequest = AdapterRequest(
@@ -576,9 +692,18 @@ class ApiClient implements ApiClientInterface {
       canonical[lower] = key;
     }
 
-    put('Accept', 'application/json');
-    put('Accept-Language', 'en');
-    if (!isMultipart) put('Content-Type', 'application/json');
+    final defaults = _config.defaultHeaders;
+    if (defaults != null) {
+      // A full replacement set: honour it verbatim. On multipart requests the
+      // transport (DefaultHttpAdapter) strips Content-Type so it can set the
+      // boundary, so a Content-Type here is handled there exactly as for the
+      // built-in defaults.
+      defaults.forEach(put);
+    } else {
+      put('Accept', _config.defaultAccept);
+      put('Accept-Language', _config.defaultAcceptLanguage);
+      if (!isMultipart) put('Content-Type', _config.defaultContentType);
+    }
     _config.extraHeaders.forEach(put);
     options.extraHeaders.forEach(put);
     options.headers?.forEach(put);
@@ -601,7 +726,7 @@ class ApiClient implements ApiClientInterface {
     if (data == null) {
       return (formData: null, body: null);
     }
-    return (formData: null, body: encodeBody(data));
+    return (formData: null, body: _config.bodySerializer.encode(data));
   }
 
   Object? _decodeSuccessBody<T>(
@@ -628,10 +753,10 @@ class ApiClient implements ApiClientInterface {
   /// body decodes to the empty string (unchanged).
   String _decodePlainText(List<int> bodyBytes) {
     try {
-      return utf8.decode(bodyBytes);
+      return _config.charset.decode(bodyBytes);
     } on FormatException catch (e, st) {
       throw ParseError(
-        'Failed to decode response body as UTF-8.',
+        'Failed to decode response body with the configured charset.',
         cause: e,
         stackTrace: st,
       );
@@ -672,7 +797,7 @@ class ApiClient implements ApiClientInterface {
         // already represented by the HttpError), so a malformed body degrades
         // to null instead of throwing — never an escaping FormatException.
         try {
-          return utf8.decode(res.bodyBytes);
+          return _config.charset.decode(res.bodyBytes);
         } on FormatException {
           return null;
         }
@@ -701,12 +826,12 @@ class ApiClient implements ApiClientInterface {
   }) {
     if (bodyBytes.isEmpty) return null;
     try {
-      final raw = utf8.decode(bodyBytes);
+      final raw = _config.charset.decode(bodyBytes);
       return raw.trim().isEmpty ? null : raw;
     } on FormatException catch (e, st) {
       if (!throwOnFailure) return null;
       throw ParseError(
-        'Failed to decode response body as UTF-8.',
+        'Failed to decode response body with the configured charset.',
         cause: e,
         stackTrace: st,
       );
@@ -715,7 +840,7 @@ class ApiClient implements ApiClientInterface {
 
   Object? _tryParseJsonWithClassification(String raw) {
     try {
-      return jsonDecode(raw);
+      return _config.responseJsonCodec.decode(raw);
     } on FormatException catch (e, st) {
       if (_responseHandler.isHtmlOrTextResponse(raw)) {
         throw const ParseError(
@@ -732,7 +857,7 @@ class ApiClient implements ApiClientInterface {
 
   Object? _tryParseJson(String raw, {bool throwOnFailure = true}) {
     try {
-      return jsonDecode(raw);
+      return _config.responseJsonCodec.decode(raw);
     } on FormatException catch (e, st) {
       if (!throwOnFailure) return null;
       throw ParseError(

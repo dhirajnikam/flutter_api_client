@@ -1,3 +1,52 @@
+## 1.3.0
+
+**Release Date**: 2026-07-17  
+**Type**: Minor Release (additive)  
+**Breaking Changes**: None (fully backward compatible with 1.2.0)
+
+This release opens up the client's customization surface. Everything that was
+previously hard-coded is now configurable, and every new option is optional with
+a default that reproduces the pre-1.3.0 behaviour exactly — existing code is
+unaffected.
+
+### Added
+
+* **Configurable default headers & locale** on `ApiClientConfig`: `defaultAccept`
+  (`application/json`), `defaultAcceptLanguage` (`en`), `defaultContentType`
+  (`application/json`), and `defaultHeaders` (replaces the whole built-in
+  default-header block when set). Per-request `headers`/`extraHeaders` still
+  override these case-insensitively.
+* **Pluggable serialization**: `RequestBodySerializer` (default
+  `JsonRequestBodySerializer`), `ResponseJsonCodec` (default
+  `DefaultResponseJsonCodec`), and `Charset` (default `Utf8Charset`), wired
+  through `ApiClientConfig.bodySerializer` / `responseJsonCodec` / `charset`.
+  Send/parse form-urlencoded, non-UTF-8, or custom JSON without swapping the
+  transport.
+* **Configurable query-string encoding** via `QueryEncoder` (list format
+  `repeated`/`brackets`/`comma`, nested style `brackets`/`dotted`, and
+  null-inclusion), exposed as `ApiClientConfig.queryEncoder`. `buildUri` /
+  `buildQueryString` gain an optional `encoder` argument; their existing
+  signatures are unchanged.
+* **Custom retry backoff**: `RetryPolicy.backoff` — a `Duration Function(int
+  attempt)` that replaces the built-in exponential formula. The result is still
+  capped at `maxDelay`, jittered when `useJitter` is on, and yields to a server
+  `Retry-After`.
+* **Configurable auth header name**: `AuthInterceptor.headerName` /
+  `ApiClientConfig.authHeaderName` (default `Authorization`).
+* **Configurable success boundary**: `ApiClientConfig.isSuccessStatus`
+  (default `200 <= code < 300`) decides which responses become `Success`.
+* **`ClientCustomization`** bundle so the `withToken` / `withStorage` / `test`
+  factories expose all of the above through a single `customization` parameter.
+
+### Notes
+
+* If you rename the auth header via `authHeaderName`, the bundled `PrettyLogger`
+  / `CurlLogger` will not redact it by default (they key on `authorization`).
+  Add your header name to their `redactHeaders` set to keep the token out of
+  logs.
+* The `comma` query list format emits a literal comma separator
+  (`ids=1,2,3`), encoding each element individually.
+
 ## 1.2.0
 
 **Release Date**: 2026-07-07  

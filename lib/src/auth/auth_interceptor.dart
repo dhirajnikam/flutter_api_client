@@ -29,12 +29,20 @@ class AuthInterceptor extends Interceptor {
     this.refresh,
     this.authScheme = 'Bearer',
     this.retryStatusCodes = const {401},
+    this.headerName = 'Authorization',
   });
 
   final TokenStorage storage;
   final RefreshTokenFn? refresh;
   final String authScheme;
   final Set<int> retryStatusCodes;
+
+  /// HTTP header the token is written to. Defaults to `Authorization`.
+  ///
+  /// Note: the bundled loggers redact a header named `authorization` by
+  /// default; if you change this, add the new name to their `redactHeaders`
+  /// set so the token is not logged in the clear.
+  final String headerName;
 
   Future<bool>? _inFlight;
 
@@ -46,7 +54,7 @@ class AuthInterceptor extends Interceptor {
     if (!req.options.includeToken) return ProceedResult(req);
     final token = await storage.getAccessToken();
     if (token != null && token.isNotEmpty) {
-      req.headers['Authorization'] =
+      req.headers[headerName] =
           authScheme.isEmpty ? token : '$authScheme $token';
       // Record which token this attempt used (a non-reversible fingerprint,
       // never the token itself; this header is internal and stripped before
@@ -93,7 +101,7 @@ class AuthInterceptor extends Interceptor {
     retry.headers[_retriedHeader] = '1';
     // Drop the stale Authorization/fingerprint so onRequest re-attaches the
     // freshest token on the retry pass.
-    retry.headers.remove('Authorization');
+    retry.headers.remove(headerName);
     retry.headers.remove(_tokenFpHeader);
     return retry;
   }
