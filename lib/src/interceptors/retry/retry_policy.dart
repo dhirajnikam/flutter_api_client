@@ -16,6 +16,7 @@ class RetryPolicy implements RetryPolicyInterface {
     this.useJitter = true,
     this.respectRetryAfter = true,
     this.safeMethods = const {'GET', 'HEAD', 'OPTIONS'},
+    this.backoff,
   });
 
   /// Maximum number of attempts (the initial try counts as attempt 1).
@@ -41,6 +42,14 @@ class RetryPolicy implements RetryPolicyInterface {
 
   /// Methods considered idempotent and therefore safe to retry.
   final Set<String> safeMethods;
+
+  /// Optional custom backoff. When set, it computes the base delay before a
+  /// retry from the 1-based [attempt] number, replacing the built-in
+  /// `baseDelay * 2^(attempt-1)` formula. The result is still capped at
+  /// [maxDelay] and subjected to jitter (when [useJitter] is true), and a
+  /// server `Retry-After` header still takes precedence when
+  /// [respectRetryAfter] is enabled. `null` uses the built-in formula.
+  final Duration Function(int attempt)? backoff;
 
   /// Shared RNG. A fresh `Random()` per call is clock-seeded, so many clients
   /// retrying within the same millisecond under a thundering-herd 503 get
@@ -94,8 +103,16 @@ class RetryPolicy implements RetryPolicyInterface {
         return retryAfter > maxDelay ? maxDelay : retryAfter;
       }
     }
-    final pow = (1 << (attempt - 1).clamp(0, 16));
-    final raw = baseDelay * pow;
+    final Duration raw;
+    if (backoff != null) {
+      final custom = backoff!(attempt);
+      // Guard against a custom backoff returning a negative duration, which
+      // would make jitter's `nextDouble() * inMilliseconds` negative.
+      raw = custom.isNegative ? Duration.zero : custom;
+    } else {
+      final pow = (1 << (attempt - 1).clamp(0, 16));
+      raw = baseDelay * pow;
+    }
     final capped = raw > maxDelay ? maxDelay : raw;
     if (!useJitter) return capped;
     // Full jitter: uniform in [0, capped]. Decorrelates concurrent retries

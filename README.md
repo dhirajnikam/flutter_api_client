@@ -49,7 +49,7 @@ a Markdown API reference, and a backend implementation guide.
 
 ```yaml
 dependencies:
-  flutter_api_client: ^1.2.0
+  flutter_api_client: ^1.3.0
 
 dev_dependencies:
   build_runner: ^2.15.0
@@ -295,6 +295,16 @@ result.when(
 | `responseHandler` | `ResponseHandlerInterface?` | built-in | Custom error-message extractor |
 | `interceptors` | `List<Interceptor>` | `[]` | Applied in declaration order |
 | `adapter` | `HttpAdapter?` | `DefaultHttpAdapter()` | Swap transport for tests or custom HTTP stacks |
+| `defaultHeaders` | `Map<String, String>?` | `null` | Replaces the entire built-in default-header block when set |
+| `defaultAccept` | `String` | `'application/json'` | Default `Accept` header |
+| `defaultAcceptLanguage` | `String` | `'en'` | Default `Accept-Language` (locale) |
+| `defaultContentType` | `String` | `'application/json'` | Default `Content-Type` for non-multipart requests |
+| `authHeaderName` | `String` | `'Authorization'` | Header the auth token is written to |
+| `bodySerializer` | `RequestBodySerializer` | JSON | Encodes request bodies before transport |
+| `responseJsonCodec` | `ResponseJsonCodec` | `jsonDecode` | Parses JSON response bodies |
+| `charset` | `Charset` | UTF-8 | Charset for encoding string bodies / decoding responses |
+| `queryEncoder` | `QueryEncoder` | repeated-key | Serializes URL query parameters |
+| `isSuccessStatus` | `bool Function(int)` | `2xx` | Decides which status codes are `Success` |
 
 **Convenience constructors:**
 
@@ -324,6 +334,101 @@ ApiClientConfig(
   baseUrl: 'https://api.example.com',
   maxRequestBodyBytes: 512 * 1024,
   maxResponseBodyBytes: 10 * 1024 * 1024,
+);
+```
+
+### Deep customization
+
+Every default is overridable, and every override is optional — leaving a knob
+unset preserves the exact pre-1.3.0 behaviour.
+
+**Default headers & locale**
+
+```dart
+ApiClientConfig(
+  baseUrl: 'https://api.example.com',
+  defaultAcceptLanguage: 'fr-CA',                 // locale
+  defaultAccept: 'application/vnd.api+json',
+  defaultContentType: 'application/json; charset=utf-8',
+);
+
+// …or replace the built-in Accept / Accept-Language / Content-Type block wholesale:
+ApiClientConfig(
+  baseUrl: 'https://api.example.com',
+  defaultHeaders: {'Accept': 'application/cbor', 'X-App': 'myapp'},
+);
+```
+
+Per-request `headers` / `extraHeaders` still override these case-insensitively.
+
+**Pluggable serialization** — implement `RequestBodySerializer`,
+`ResponseJsonCodec`, and/or `Charset` to send/parse a non-JSON or non-UTF-8
+payload. `Charset.decode` and `ResponseJsonCodec.decode` must throw a
+`FormatException` on bad input so the client can surface a typed `ParseError`.
+
+```dart
+class FormUrlEncodedSerializer implements RequestBodySerializer {
+  const FormUrlEncodedSerializer();
+  @override
+  Object? encode(Object? data) => data is Map
+      ? data.entries
+          .map((e) => '${Uri.encodeQueryComponent('${e.key}')}='
+              '${Uri.encodeQueryComponent('${e.value}')}')
+          .join('&')
+      : data?.toString();
+}
+
+ApiClientConfig(
+  baseUrl: 'https://api.example.com',
+  bodySerializer: const FormUrlEncodedSerializer(),
+);
+```
+
+**Query-string encoding** — control how lists, nested maps, and nulls render:
+
+```dart
+ApiClientConfig(
+  baseUrl: 'https://api.example.com',
+  queryEncoder: const QueryEncoder(
+    listFormat: QueryListFormat.comma,   // ids=1,2,3  (also: repeated | brackets)
+    nested: QueryNestedStyle.dotted,     // filter.name=foo  (or: brackets)
+    includeNulls: true,                  // emit q=  instead of dropping nulls
+  ),
+);
+```
+
+**Retry backoff / auth header / success boundary**
+
+```dart
+// A custom backoff curve (still capped at maxDelay, jittered when enabled):
+RetryInterceptor(
+  policy: RetryPolicy(backoff: (attempt) => Duration(seconds: attempt * attempt)),
+);
+
+// A non-standard auth header, and a custom success rule (treat 3xx as success):
+ApiClientConfig(
+  baseUrl: 'https://api.example.com',
+  authHeaderName: 'X-Auth-Token',
+  isSuccessStatus: (code) => code >= 200 && code < 400,
+);
+```
+
+> **Note:** if you rename the auth header, the bundled loggers won't redact it
+> by default (they key on `authorization`). Add your header name to the
+> logger's `redactHeaders` set so the token isn't logged in the clear.
+
+**Through the convenience factories** — `withToken` / `withStorage` / `test`
+accept a single `ClientCustomization` bundle so you don't need the full
+constructor:
+
+```dart
+ApiClientConfig.withToken(
+  baseUrl: 'https://api.example.com',
+  getAccessToken: () async => await SecureStorage.read('token'),
+  customization: const ClientCustomization(
+    defaultAcceptLanguage: 'de-DE',
+    authHeaderName: 'X-Auth-Token',
+  ),
 );
 ```
 
