@@ -29,34 +29,36 @@ class TestGenerator {
   static final RegExp _leadingSlash = RegExp(r'^/');
 
   /// Renders a complete, runnable `*_test.dart` source as a string.
+  ///
+  /// The output is `dart format`-clean on the first pass: test blocks are
+  /// assembled and joined with single blank-line separators rather than
+  /// streamed, so no trailing blank lines are left before a closing brace.
   String generate() {
-    final buf = StringBuffer();
-    buf.writeln('// GENERATED CODE - DO NOT MODIFY BY HAND');
-    buf.writeln('// Regenerate: dart run flutter_api_client:gen --only tests');
-    buf.writeln();
-    buf.writeln("import 'package:flutter_api_client/flutter_api_client.dart';");
-    buf.writeln("import 'package:flutter_test/flutter_test.dart';");
+    final header = StringBuffer()
+      ..writeln('// GENERATED CODE - DO NOT MODIFY BY HAND')
+      ..writeln('// Regenerate: dart run flutter_api_client:gen --only tests')
+      ..writeln()
+      ..writeln("import 'package:flutter_api_client/flutter_api_client.dart';")
+      ..writeln("import 'package:flutter_test/flutter_test.dart';");
     if (specImport != null) {
-      buf.writeln("import '$specImport';");
+      header.writeln("import '$specImport';");
     }
-    buf.writeln();
 
     final byTag = <String, List<EndpointSpec>>{};
     for (final ep in spec.endpoints) {
       byTag.putIfAbsent(ep.tag ?? 'General', () => []).add(ep);
     }
 
-    buf.writeln('void main() {');
+    final groups = <String>[];
     byTag.forEach((tag, endpoints) {
-      buf.writeln("  group('$tag', () {");
-      for (final ep in endpoints) {
-        _writeEndpointTests(buf, ep);
-      }
-      buf.writeln('  });');
-      buf.writeln();
+      final blocks = [
+        for (final ep in endpoints) ..._endpointTestBlocks(ep),
+      ];
+      final body = blocks.join('\n\n');
+      groups.add("  group('$tag', () {\n$body\n  });");
     });
-    buf.writeln('}');
-    return buf.toString();
+
+    return '$header\nvoid main() {\n${groups.join('\n\n')}\n}\n';
   }
 
   // Verbs the generated client (ApiClient) actually exposes. A spec endpoint
@@ -64,71 +66,85 @@ class TestGenerator {
   // not compile — so skip it with a visible note instead.
   static const _supportedMethods = {'GET', 'POST', 'PUT', 'PATCH', 'DELETE'};
 
-  void _writeEndpointTests(StringBuffer buf, EndpointSpec ep) {
+  /// Builds the individual `test(...)` blocks for one endpoint. Each returned
+  /// string is a self-contained block with no leading or trailing blank line;
+  /// the caller joins them with blank-line separators.
+  List<String> _endpointTestBlocks(EndpointSpec ep) {
     if (!_supportedMethods.contains(ep.method.toUpperCase())) {
-      buf.writeln(
-          '    // ${ep.method} ${ep.path} — skipped: ApiClient has no '
-          '${ep.method.toLowerCase()}() method.');
-      buf.writeln();
-      return;
+      return [
+        '    // ${ep.method} ${ep.path} — skipped: ApiClient has no '
+            '${ep.method.toLowerCase()}() method.',
+      ];
     }
     final baseUrl = spec.baseUrl;
     final methodKey = '${ep.method} ${ep.path}';
     final concretePath = ep.path
         .replaceAllMapped(_placeholder, (_) => '1')
         .replaceFirst(_leadingSlash, '');
+    final method = ep.method.toLowerCase();
+    final blocks = <String>[];
 
     // Happy path
-    buf.writeln("    test('${ep.method} ${ep.path} — happy path', () async {");
-    buf.writeln(_clientSetup(baseUrl, ''));
-    buf.writeln(_callLine(ep, concretePath));
-    buf.writeln('      expect(res.isSuccess, true);');
-    buf.writeln('    });');
-    buf.writeln();
+    blocks.add([
+      "    test('${ep.method} ${ep.path} — happy path', () async {",
+      _clientSetup(baseUrl, null),
+      _callLine(ep, concretePath),
+      '      expect(res.isSuccess, true);',
+      '    });',
+    ].join('\n'));
 
     // Schema validation failure
     if (ep.request?.schema != null) {
-      buf.writeln(
-          "    test('${ep.method} ${ep.path} — schema validation rejects bad body', () async {");
-      buf.writeln(_clientSetup(baseUrl, ''));
-      final method = ep.method.toLowerCase();
-      buf.writeln(
-          "      final res = await client.$method<dynamic>('$concretePath', <String, dynamic>{});");
-      buf.writeln('      expect(res.statusCode, 422);');
-      buf.writeln('    });');
-      buf.writeln();
+      blocks.add([
+        "    test('${ep.method} ${ep.path} — schema validation rejects bad body', () async {",
+        _clientSetup(baseUrl, null),
+        "      final res = await client.$method<dynamic>('$concretePath', <String, dynamic>{});",
+        '      expect(res.statusCode, 422);',
+        '    });',
+      ].join('\n'));
     }
 
     // Auth required
     if (ep.auth) {
-      buf.writeln(
-          "    test('${ep.method} ${ep.path} — auth required returns 401', () async {");
-      buf.writeln(_clientSetup(
-          baseUrl, ", statusOverrides: const {'$methodKey': 401}"));
-      buf.writeln(_callLine(ep, concretePath));
-      buf.writeln('      expect(res.statusCode, 401);');
-      buf.writeln('    });');
-      buf.writeln();
+      blocks.add([
+        "    test('${ep.method} ${ep.path} — auth required returns 401', () async {",
+        _clientSetup(baseUrl, "'$methodKey': 401"),
+        _callLine(ep, concretePath),
+        '      expect(res.statusCode, 401);',
+        '    });',
+      ].join('\n'));
     }
 
     // Explicit error responses
     for (final r in ep.responses.where((r) => !r.isSuccess)) {
-      buf.writeln(
-          "    test('${ep.method} ${ep.path} — returns ${r.statusCode}', () async {");
-      buf.writeln(_clientSetup(
-          baseUrl, ", statusOverrides: const {'$methodKey': ${r.statusCode}}"));
-      buf.writeln(_callLine(ep, concretePath));
-      buf.writeln('      expect(res.statusCode, ${r.statusCode});');
-      buf.writeln('    });');
-      buf.writeln();
+      blocks.add([
+        "    test('${ep.method} ${ep.path} — returns ${r.statusCode}', () async {",
+        _clientSetup(baseUrl, "'$methodKey': ${r.statusCode}"),
+        _callLine(ep, concretePath),
+        '      expect(res.statusCode, ${r.statusCode});',
+        '    });',
+      ].join('\n'));
     }
+
+    return blocks;
   }
 
-  String _clientSetup(String baseUrl, String overrides) =>
-      '      final client = ApiClient(ApiClientConfig.test(\n'
-      "        baseUrl: '$baseUrl',\n"
-      '        adapter: SpecMockAdapter($specSymbol$overrides),\n'
-      '      ));';
+  String _clientSetup(String baseUrl, String? statusOverride) {
+    // Emitted in the fully-expanded form Dart's formatter produces for a nested
+    // constructor call, so the generated file is `dart format`-clean up front.
+    final adapter = statusOverride == null
+        ? 'SpecMockAdapter($specSymbol)'
+        : 'SpecMockAdapter(\n'
+            '            $specSymbol,\n'
+            '            statusOverrides: const {$statusOverride},\n'
+            '          )';
+    return '      final client = ApiClient(\n'
+        '        ApiClientConfig.test(\n'
+        "          baseUrl: '$baseUrl',\n"
+        '          adapter: $adapter,\n'
+        '        ),\n'
+        '      );';
+  }
 
   String _callLine(EndpointSpec ep, String path) {
     final method = ep.method.toLowerCase();

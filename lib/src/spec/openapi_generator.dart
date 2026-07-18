@@ -60,8 +60,8 @@ class OpenApiGenerator {
     });
 
     final op = <String, Object?>{
-      'summary': ep.summary,
-      'description': ep.description,
+      if (ep.summary != null) 'summary': ep.summary,
+      if (ep.description != null) 'description': ep.description,
       'tags': [if (ep.tag != null) ep.tag],
       if (ep.auth == false) 'security': <Object?>[],
       if (params.isNotEmpty) 'parameters': params,
@@ -139,10 +139,14 @@ class OpenApiGenerator {
       if (value.isEmpty) return '[]';
       final buf = StringBuffer();
       for (final v in value) {
-        if (v is Map || v is List) {
-          buf.writeln('$pad- ');
-          final inner = _toYaml(v, indent + 1);
-          buf.writeln(_reindent(inner, '  ' * (indent + 1)));
+        if ((v is Map && v.isNotEmpty) || (v is List && v.isNotEmpty)) {
+          // Render the child at zero indent, then hang it off the dash: first
+          // line sits after `- `, the rest align two columns past the dash.
+          final lines = _toYaml(v, 0).split('\n');
+          buf.writeln('$pad- ${lines.first}');
+          for (final line in lines.skip(1)) {
+            buf.writeln('$pad  $line');
+          }
         } else {
           buf.writeln('$pad- ${_toYaml(v, 0)}');
         }
@@ -153,10 +157,10 @@ class OpenApiGenerator {
       if (value.isEmpty) return '{}';
       final buf = StringBuffer();
       value.forEach((k, v) {
-        if (v == null) return;
-        if (v is Map && v.isEmpty) return;
-        if (v is List && v.isEmpty) return;
-        if (v is Map || v is List) {
+        // Non-empty collections nest on the following lines; scalars, nulls and
+        // empty collections render inline so YAML stays faithful to the JSON
+        // document (e.g. `security: []` and empty example arrays survive).
+        if ((v is Map && v.isNotEmpty) || (v is List && v.isNotEmpty)) {
           buf.writeln('$pad$k:');
           buf.writeln(_toYaml(v, indent + 1));
         } else {
@@ -167,9 +171,6 @@ class OpenApiGenerator {
     }
     return value.toString();
   }
-
-  String _reindent(String s, String pad) =>
-      s.split('\n').map((l) => l.isEmpty ? l : '$pad$l').join('\n');
 
   String _yamlString(String s) {
     if (s.isEmpty) return '""';

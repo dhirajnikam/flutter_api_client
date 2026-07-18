@@ -138,5 +138,28 @@ void main() {
       );
       expect(out, contains(r'SpecMockAdapter($generatedSpec)'));
     });
+
+    test('output is dart format-clean (no stray blank lines)', () {
+      final out = TestGenerator(_authSpec()).generate();
+      final lines = out.split('\n');
+
+      // No run of two or more consecutive blank lines.
+      expect(out, isNot(contains('\n\n\n')));
+
+      // Exactly one trailing newline — no blank lines at end of file.
+      expect(out.endsWith('\n'), isTrue);
+      expect(out.endsWith('\n\n'), isFalse);
+
+      // No blank line immediately before a closing brace, which is what the
+      // old streaming emitter produced and `dart format` would strip.
+      for (var i = 1; i < lines.length; i++) {
+        final closesBlock = lines[i].trimLeft().startsWith('}');
+        if (closesBlock) {
+          expect(lines[i - 1].trim(), isNotEmpty,
+              reason:
+                  'blank line before "${lines[i].trim()}" at line ${i + 1}');
+        }
+      }
+    });
   });
 }

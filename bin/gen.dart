@@ -125,6 +125,25 @@ void main(List<String> args) async {
   }
 
   stdout.write(result.stdout);
+
+  // Normalise the generated Dart test with the real formatter. The generator
+  // aims for `dart format`-clean output, but long inline body literals can
+  // still exceed the line limit; running the SDK formatter (already available
+  // since the user invoked `dart run`) guarantees the emitted file is clean.
+  if (generators.contains('tests') && !dryRun) {
+    const testPath = 'test/api_spec_test.dart';
+    if (File('$cwd/$testPath').existsSync()) {
+      final fmt = await Process.run(
+        Platform.resolvedExecutable,
+        ['format', testPath],
+        workingDirectory: cwd,
+      );
+      if (fmt.exitCode == 0) {
+        stdout.writeln('  ✓ formatted $testPath');
+      }
+    }
+  }
+
   stdout.writeln('─' * 45);
 }
 

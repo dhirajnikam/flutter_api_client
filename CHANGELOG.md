@@ -1,3 +1,32 @@
+## 1.3.1
+
+**Release Date**: 2026-07-18  
+**Type**: Patch Release (bug fixes)  
+**Breaking Changes**: None
+
+Fixes divergence between the generated OpenAPI JSON and YAML documents, and
+makes the generated test file `dart format`-clean out of the box.
+
+### Fixed
+
+* **OpenAPI YAML no longer drops empty collections.** The YAML serializer
+  silently omitted any key whose value was an empty list or map, so the YAML
+  document diverged from the JSON one: example payloads lost empty arrays
+  (`{"users": [], "total": 0}` rendered as just `total: 0`), and — more
+  seriously — `security: []` (OpenAPI's marker for a public endpoint) vanished
+  from the YAML, changing the described contract. Empty collections and nulls
+  now render inline so both formats stay faithful.
+* **OpenAPI JSON no longer emits `"summary": null` / `"description": null`.**
+  These fields are now omitted when absent, matching the OpenAPI schema (they
+  must be strings, not null).
+* **Generated YAML uses canonical block-sequence indentation.** List items no
+  longer hang their mapping on an over-indented following line; the first key
+  now sits on the `-` line with aligned continuations.
+* **Generated test file is `dart format`-clean.** The `TestGenerator` no longer
+  leaves stray blank lines before closing braces, and `dart run
+  flutter_api_client:gen --tests` now runs the SDK formatter over the emitted
+  `test/api_spec_test.dart` so long inline body literals are wrapped correctly.
+
 ## 1.3.0
 
 **Release Date**: 2026-07-17  

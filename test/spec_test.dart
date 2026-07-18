@@ -136,6 +136,47 @@ void main() {
       expect(yaml, contains('openapi: 3.1.0'));
     });
 
+    test('OpenAPI YAML preserves empty arrays in example payloads', () {
+      final spec = ApiSpec(
+        title: 'Empties',
+        version: '1.0.0',
+        baseUrl: 'https://api.test',
+      );
+      spec.endpoint(
+        'GET /users',
+        response: ResponseExample.ok(const {'users': [], 'total': 0}),
+      );
+      final yaml = OpenApiGenerator(spec).toYaml();
+      // Regression: the YAML serialiser used to drop keys whose value was an
+      // empty list/map, silently diverging from the JSON document.
+      expect(yaml, contains('users: []'));
+      expect(yaml, contains('total: 0'));
+    });
+
+    test(
+        'OpenAPI keeps security:[] for public endpoints and omits null summary',
+        () {
+      final spec = ApiSpec(
+        title: 'Public',
+        version: '1.0.0',
+        baseUrl: 'https://api.test',
+      );
+      // No summary, and auth:false => must emit `security: []` (OpenAPI's
+      // "this operation is public") in both JSON and YAML.
+      spec.endpoint('GET /health', auth: false);
+      final json = OpenApiGenerator(spec).toJson();
+      final op =
+          (json['paths'] as Map)['/health']['get'] as Map<String, Object?>;
+      expect(op.containsKey('security'), isTrue);
+      expect(op['security'], isEmpty);
+      // A null summary must not be serialised as `"summary": null`.
+      expect(op.containsKey('summary'), isFalse);
+
+      final yaml = OpenApiGenerator(spec).toYaml();
+      expect(yaml, contains('security: []'));
+      expect(yaml, isNot(contains('summary: null')));
+    });
+
     test('Markdown contains tags + endpoints', () {
       final md = MarkdownDocGenerator(_sampleSpec()).generate();
       expect(md, contains('# Sample — API Reference'));
