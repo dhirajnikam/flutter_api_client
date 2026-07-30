@@ -1,3 +1,52 @@
+## 1.4.0
+
+**Release Date**: 2026-07-30  
+**Type**: Minor Release (additive)  
+**Breaking Changes**: None (fully backward compatible with 1.3.x)
+
+This release makes the offline story smooth end-to-end: queued writes now
+replay against exactly the URL they originally targeted, the built-in stores
+survive a crash mid-replay, and both ends of the pipeline gained observability
+hooks. Every change is additive; existing code and previously persisted queue
+records keep working unchanged.
+
+### Added
+
+* **`PeekableOfflineQueueStore`** — an optional capability interface for
+  offline stores (`peekAll()` reads pending requests without removing them).
+  Both built-in stores (`InMemoryOfflineQueueStore`, `HiveOfflineQueueStore`)
+  implement it. When the store is peekable, `OfflineQueueReplayer` keeps every
+  request persisted until it is individually settled, so a crash mid-replay no
+  longer loses the not-yet-sent tail (delivery is at-least-once). Custom
+  stores that only implement `OfflineQueueStore` keep the legacy drain-based
+  path unchanged.
+* **`QueuedRequest.queryParameters` / `QueuedRequest.baseUrlOverride`** —
+  queued writes now persist the query string and base-URL override they were
+  issued with, and the replayer restores them, so a replayed
+  `POST /items?draft=true` no longer silently becomes `POST /items`. Records
+  persisted by older versions parse fine (the new fields are optional).
+* **`OfflineQueueInterceptor.onQueued`** — optional callback fired with the
+  stored record after a request is queued. Use it for "saved offline, will
+  sync" UI or to schedule a replay pass.
+* **`OfflineQueueReplayer.onDeadLetter`** — optional callback fired with the
+  request (and final error) whenever a queued write is dropped, either because
+  the server rejected it or it exhausted `maxAttempts`.
+* **QUERY replay** — `OfflineQueueReplayer` now replays queued `QUERY`
+  requests through `ApiClient.query` instead of falling back to POST.
+
+### Fixed
+
+* **Replay no longer double-sends on overlapping calls.** Concurrent
+  `OfflineQueueReplayer.replay()` invocations (e.g. from a chatty connectivity
+  listener) now share a single in-flight pass and return the same report.
+* **A queueing failure no longer masks the network error.** If the store
+  throws while persisting (unserialisable body, disk full), the caller still
+  receives the original `NetworkError`/`TimeoutError` instead of an
+  `UnknownError` from the store.
+* **Multipart requests are no longer queued.** File/stream payloads cannot be
+  persisted and replayed faithfully; previously they could poison a persistent
+  store's JSON encoding at enqueue time.
+
 ## 1.3.1
 
 **Release Date**: 2026-07-18  

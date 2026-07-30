@@ -64,6 +64,16 @@
 /// );
 /// ```
 ///
+/// ## Version 1.4.0
+/// - Smooth offline: queued writes persist their query parameters and
+///   base-URL override and replay against the exact original URL
+/// - [PeekableOfflineQueueStore] gives the built-in stores crash-safe replay
+///   (requests stay persisted until individually settled)
+/// - `OfflineQueueInterceptor.onQueued` and `OfflineQueueReplayer.onDeadLetter`
+///   observability hooks; overlapping `replay()` calls coalesce into one pass
+/// - Queueing failures never mask the original network error; multipart
+///   requests are never queued
+///
 /// ## Version 1.3.0
 /// - Deep, backward-compatible customization on [ApiClientConfig]: configurable
 ///   default headers &amp; locale (`defaultHeaders`, `defaultAccept`,

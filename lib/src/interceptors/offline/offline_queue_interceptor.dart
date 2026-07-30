@@ -10,6 +10,7 @@ class OfflineQueueInterceptor extends Interceptor {
     required this.store,
     this.methods = const {'POST', 'PUT', 'PATCH', 'DELETE'},
     this.isOnline,
+    this.onQueued,
   });
 
   /// Backend the failed mutations are queued into.
@@ -22,6 +23,13 @@ class OfflineQueueInterceptor extends Interceptor {
   /// queued (they are genuine failures, not offline conditions). When `null`,
   /// the request is always treated as offline on a network/timeout error.
   final Future<bool> Function()? isOnline;
+
+  /// Called after a request has been queued, with the stored record. Use it
+  /// to surface "saved offline, will sync" UI or to schedule an
+  /// `OfflineQueueReplayer.replay` pass when connectivity returns. Exceptions
+  /// it throws are swallowed so a listener bug cannot mask the original
+  /// network error.
+  final void Function(QueuedRequest request)? onQueued;
 
   /// Monotonic per-instance sequence appended to each id. Two mutations to the
   /// same endpoint inside one microsecond (or whose `endpoint.hashCode`
@@ -40,21 +48,40 @@ class OfflineQueueInterceptor extends Interceptor {
     if (error is! NetworkError && error is! TimeoutError) {
       return RejectResult(error);
     }
+    // Multipart payloads (streams/files) cannot be serialized into the queue
+    // or faithfully replayed later, so they are never queued.
+    if (req.isMultipart) return RejectResult(error);
     final online = isOnline == null ? false : await isOnline!();
     if (online) return RejectResult(error);
     final now = DateTime.now();
     final id =
         '${now.microsecondsSinceEpoch}-${_seq++}-${req.endpoint.hashCode}';
-    await store.enqueue(
-      QueuedRequest(
-        id: id,
-        method: req.method,
-        endpoint: req.endpoint,
-        headers: _queuedHeaders(req.headers),
-        body: req.data,
-        createdAt: now,
-      ),
+    final queued = QueuedRequest(
+      id: id,
+      method: req.method,
+      endpoint: req.endpoint,
+      headers: _queuedHeaders(req.headers),
+      body: req.data,
+      createdAt: now,
+      queryParameters: req.options.queryParameters,
+      baseUrlOverride: req.options.baseUrlOverride,
     );
+    // Never let a queueing failure mask the network error the caller needs to
+    // see: if the store throws (e.g. a persistent store cannot JSON-encode
+    // the body, or the disk write fails), the request is simply not queued
+    // and the original error still propagates.
+    try {
+      await store.enqueue(queued);
+    } catch (_) {
+      return RejectResult(error);
+    }
+    if (onQueued != null) {
+      try {
+        onQueued!(queued);
+      } catch (_) {
+        // Listener errors must not replace the original network error.
+      }
+    }
     return RejectResult(error);
   }
 

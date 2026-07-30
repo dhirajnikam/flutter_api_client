@@ -49,7 +49,7 @@ a Markdown API reference, and a backend implementation guide.
 
 ```yaml
 dependencies:
-  flutter_api_client: ^1.3.0
+  flutter_api_client: ^1.4.0
 
 dev_dependencies:
   build_runner: ^2.15.0
@@ -856,8 +856,14 @@ OfflineQueueInterceptor(
   isOnline: () async => (await Connectivity().checkConnectivity())
                         != ConnectivityResult.none,
   methods:  {'POST', 'PUT', 'PATCH', 'DELETE'}, // default
+  onQueued: (queued) => showSnackBar('Saved offline — will sync'), // optional
 )
 ```
+
+Queued records preserve the request's query parameters and base-URL override,
+so replay targets exactly the URL the original request did. The optional
+`onQueued` callback fires after a request lands in the queue — use it for
+"saved offline" UI or to schedule a replay pass.
 
 **Replaying the queue** when connectivity returns — use the built-in
 `OfflineQueueReplayer`:
@@ -871,17 +877,30 @@ final report = await OfflineQueueReplayer(
   store: store,
   client: client,
   maxAttempts: 3, // dead-letter a request after this many failed replays
+  onDeadLetter: (queued, error) => // optional: a queued write was dropped
+      log('dropped ${queued.method} ${queued.endpoint}: $error'),
 ).replay();
 
 print(report); // succeeded / reEnqueued / deadLettered counts
 ```
 
-The replayer drains the queue in `createdAt` order and re-issues each request
-through `client`, so a fresh `Authorization` token is attached automatically.
-A request that fails transiently (network/timeout) is re-enqueued with an
-incremented attempt count; once it reaches `maxAttempts` it is dead-lettered
-instead of looping forever. A request the server actually rejects (a non
-network/timeout error) is dropped.
+The replayer processes the queue in `createdAt` order and re-issues each
+request through `client`, so a fresh `Authorization` token is attached
+automatically. A request that fails transiently (network/timeout) is
+re-enqueued with an incremented attempt count; once it reaches `maxAttempts`
+it is dead-lettered instead of looping forever. A request the server actually
+rejects (a non network/timeout error) is dropped, and the optional
+`onDeadLetter` callback tells you about every drop.
+
+Replay is crash-safe with the built-in stores: they implement
+`PeekableOfflineQueueStore`, so requests stay persisted until each one is
+individually settled — a crash mid-replay cannot lose the not-yet-sent tail.
+(Delivery is at-least-once: a crash between a send and its removal replays
+that one request again on the next pass.) Custom stores that only implement
+`OfflineQueueStore` keep the original drain-based behaviour; implement
+`peekAll()` to opt into crash-safe replay. Overlapping `replay()` calls are
+coalesced into a single pass, so wiring it to a chatty connectivity listener
+cannot double-send the queue.
 
 Queued requests retain ordinary request headers, but the interceptor drops the
 `Authorization` header before persisting so replay uses the current token
@@ -891,6 +910,12 @@ instead of a stale one.
 - GET / HEAD (idempotent reads)
 - `HttpError` (4xx/5xx — server-side, not a connectivity issue)
 - Requests when `isOnline()` returns `true`
+- Multipart uploads (file/stream payloads cannot be persisted and replayed
+  faithfully)
+
+If the store itself fails to persist a request (e.g. the body is not
+JSON-serialisable, or the disk write throws), the original network error is
+still what the caller sees — a queueing failure never masks it.
 
 `HiveOfflineQueueStore` is the built-in persistent option. It stores each
 queued request as a JSON string in a user-supplied `Hive` box. Queue bodies

@@ -198,12 +198,15 @@ delay = min(baseDelay * 2^attempt + jitter, maxDelay)
 
 **Flow**:
 1. On network/timeout error, check `isOnline()`
-2. If offline and method is mutating (POST/PUT/PATCH/DELETE), enqueue
-3. Later, app calls `store.drain()` to replay
+2. If offline and method is mutating (POST/PUT/PATCH/DELETE) and not
+   multipart, enqueue (preserving query parameters and base-URL override;
+   the `Authorization` header is stripped) and fire the optional `onQueued`
+   callback
+3. Later, app runs `OfflineQueueReplayer.replay()` to deliver the queue
 
-**Persistence**: Implement `OfflineQueueStore` interface to persist queue across app restarts.
+**Persistence**: Implement `OfflineQueueStore` interface to persist queue across app restarts. Also implement `PeekableOfflineQueueStore` (both built-in stores do) to get crash-safe replay: requests stay persisted until each one is individually settled, instead of being destructively drained up front.
 
-**Design Decision**: Read-only methods (GET, HEAD) are never enqueued because retrying them later may return different data.
+**Design Decision**: Read-only methods (GET, HEAD) are never enqueued because retrying them later may return different data. A store failure while enqueueing never masks the original network error. Overlapping `replay()` calls coalesce into a single pass so a chatty connectivity listener cannot double-send the queue.
 
 ### Logging Interceptors
 

@@ -33,8 +33,8 @@ class OfflineReplayReport {
       'deadLettered: $deadLettered)';
 }
 
-/// Drains an [OfflineQueueStore] and re-issues each pending mutation through a
-/// live [ApiClient].
+/// Re-issues the pending mutations in an [OfflineQueueStore] through a live
+/// [ApiClient].
 ///
 /// Without this, [OfflineQueueInterceptor] enqueues failed writes that are
 /// never sent. The replayer is the engine that actually delivers them — call
@@ -42,24 +42,31 @@ class OfflineReplayReport {
 /// listener; this package does not bundle one to stay dependency-light).
 ///
 /// Safety properties:
-/// - Requests replay in `createdAt` order (the stores sort on drain).
+/// - Requests replay in `createdAt` order (the stores sort on read).
 /// - Each request goes through `client`, so a fresh auth token is attached —
 ///   queued requests intentionally persist no `Authorization` header.
+/// - Persisted query parameters and base-URL overrides are restored, so the
+///   replay targets the same URL the original request did.
 /// - A request that fails transiently is re-enqueued with an incremented
 ///   attempt count; once it reaches [maxAttempts] it is dead-lettered instead
 ///   of looping forever (poison-message protection).
 /// - A request that reaches the server and is rejected (non network/timeout)
 ///   is dropped — replaying it would not help.
-///
-/// Note: [OfflineQueueStore.drain] is destructive, so a crash mid-replay can
-/// drop the requests already drained but not yet resent. A crash-safe
-/// non-destructive drain is a future improvement.
+/// - Overlapping [replay] calls share one pass: a second call while a pass is
+///   in flight returns the same future instead of double-sending the queue.
+/// - When the store is a [PeekableOfflineQueueStore] (both built-in stores
+///   are), requests stay persisted until each one is individually settled, so
+///   a crash mid-replay cannot lose the not-yet-sent tail. Replay is
+///   at-least-once: a crash after a send but before the matching remove means
+///   that one request is resent on the next pass. Stores that only implement
+///   [OfflineQueueStore] use the legacy destructive-drain path unchanged.
 class OfflineQueueReplayer {
   /// Creates a replayer that drains [store] through [client].
   OfflineQueueReplayer({
     required this.store,
     required this.client,
     this.maxAttempts = 3,
+    this.onDeadLetter,
   });
 
   /// Queue to drain and replay from.
@@ -71,10 +78,30 @@ class OfflineQueueReplayer {
   /// Maximum total replay attempts before a request is dead-lettered.
   final int maxAttempts;
 
-  /// Drains the queue and replays every pending request once, returning a
-  /// report of how each one fared.
-  Future<OfflineReplayReport> replay() async {
-    final pending = await store.drain();
+  /// Called when a request is dropped without success, with the request and
+  /// the error from its final attempt (`null` when the failure produced no
+  /// [ApiException], e.g. re-persisting the request threw). Use it to tell
+  /// the user a queued write was abandoned, or to forward it to your own
+  /// dead-letter storage. Exceptions it throws are swallowed so a listener
+  /// bug cannot abort the rest of the pass.
+  final void Function(QueuedRequest request, ApiException? error)? onDeadLetter;
+
+  Future<OfflineReplayReport>? _inFlight;
+
+  /// Replays every pending request once, returning a report of how each one
+  /// fared. Concurrent calls while a pass is running await that same pass.
+  Future<OfflineReplayReport> replay() {
+    final running = _inFlight;
+    if (running != null) return running;
+    final pass = _replayPass().whenComplete(() => _inFlight = null);
+    _inFlight = pass;
+    return pass;
+  }
+
+  Future<OfflineReplayReport> _replayPass() async {
+    final s = store;
+    final pending =
+        s is PeekableOfflineQueueStore ? await s.peekAll() : await s.drain();
     var succeeded = 0;
     var reEnqueued = 0;
     var deadLettered = 0;
@@ -82,39 +109,53 @@ class OfflineQueueReplayer {
     for (final request in pending) {
       bool isSuccess;
       bool transient;
+      ApiException? error;
       try {
         final result = await _send(request);
         isSuccess = result.isSuccess;
-        final error = result.error;
+        error = result.error;
         transient = error is NetworkError || error is TimeoutError;
       } catch (e) {
         // _send threw outside the ApiResult contract (e.g. an interceptor or
-        // the client itself raised). Treat it as transient and re-enqueue so a
-        // single unexpected failure cannot abort the loop and silently drop
-        // every request already drained from the (destructive) store.
+        // the client itself raised). Treat it as transient and keep the
+        // request queued so a single unexpected failure cannot silently drop
+        // it.
         isSuccess = false;
         transient = true;
+        error = e is ApiException ? e : null;
       }
 
       if (isSuccess) {
         succeeded++;
+        await _settle(request, keep: false);
         continue;
       }
       if (!transient) {
         deadLettered++;
+        await _settle(request, keep: false);
+        _notifyDeadLetter(request, error);
         continue;
       }
       final next = request.withAttempt();
       if (next.attempts >= maxAttempts) {
         deadLettered++;
+        await _settle(request, keep: false);
+        _notifyDeadLetter(request, error);
       } else {
-        // Re-enqueue defensively: if persistence itself fails we still want the
+        // Persist defensively: if the store fails here we still want the
         // remaining pending requests to be processed, so swallow and count it.
         try {
-          await store.enqueue(next);
+          await _settle(next, keep: true);
           reEnqueued++;
         } catch (_) {
           deadLettered++;
+          try {
+            await _settle(request, keep: false);
+          } catch (_) {
+            // Peekable store failed to remove the record too; it will be
+            // retried (and eventually dead-lettered) on a later pass.
+          }
+          _notifyDeadLetter(request, null);
         }
       }
     }
@@ -126,8 +167,35 @@ class OfflineQueueReplayer {
     );
   }
 
+  /// Settles [request] in the store after an attempt. With a peekable store
+  /// the record is still persisted, so it is removed — and re-written with
+  /// the bumped attempt count when [keep] is true. With a drain-based store
+  /// the record is already gone; only kept requests are written back.
+  Future<void> _settle(QueuedRequest request, {required bool keep}) async {
+    if (store is PeekableOfflineQueueStore) {
+      await store.remove(request.id);
+    }
+    if (keep) {
+      await store.enqueue(request);
+    }
+  }
+
+  void _notifyDeadLetter(QueuedRequest request, ApiException? error) {
+    final cb = onDeadLetter;
+    if (cb == null) return;
+    try {
+      cb(request, error);
+    } catch (_) {
+      // Listener errors must not abort the replay pass.
+    }
+  }
+
   Future<ApiResult<dynamic>> _send(QueuedRequest r) {
-    final options = RequestOptions(headers: r.headers);
+    final options = RequestOptions(
+      headers: r.headers,
+      queryParameters: r.queryParameters,
+      baseUrlOverride: r.baseUrlOverride,
+    );
     switch (r.method.toUpperCase()) {
       case 'POST':
         return client.post<dynamic>(r.endpoint, r.body, options: options);
@@ -139,6 +207,8 @@ class OfflineQueueReplayer {
         return client.delete<dynamic>(r.endpoint, options: options);
       case 'GET':
         return client.get<dynamic>(r.endpoint, options: options);
+      case 'QUERY':
+        return client.query<dynamic>(r.endpoint, r.body, options: options);
       default:
         return client.post<dynamic>(r.endpoint, r.body, options: options);
     }
