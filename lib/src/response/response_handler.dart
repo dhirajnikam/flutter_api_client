@@ -1,18 +1,25 @@
 import 'dart:convert';
 
+import '../core/serialization.dart';
 import '../http/http_adapter.dart';
 import 'response_handler_interface.dart';
 
 /// Default response handler that extracts a human-readable message from a
 /// JSON error envelope and detects HTML / plain-text bodies.
 class ResponseHandler implements ResponseHandlerInterface {
-  const ResponseHandler();
+  /// Creates the handler. [charset] decodes response bytes before message
+  /// extraction; defaults to UTF-8. Malformed bytes degrade to a generic
+  /// message rather than throwing.
+  const ResponseHandler({this.charset = const Utf8Charset()});
+
+  /// Charset used to decode response bodies.
+  final Charset charset;
 
   @override
   String? handleResponse(AdapterResponse res) {
     final isSuccess = res.statusCode >= 200 && res.statusCode < 300;
     try {
-      final body = utf8.decode(res.bodyBytes);
+      final body = charset.decode(res.bodyBytes);
 
       // Trim once and reuse: the empty-check and the HTML/text classification
       // both work off the trimmed body. `isHtmlOrTextResponse` trims its own

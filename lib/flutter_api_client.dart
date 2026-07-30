@@ -73,6 +73,9 @@
 ///   observability hooks; overlapping `replay()` calls coalesce into one pass
 /// - Queueing failures never mask the original network error; multipart
 ///   requests are never queued
+/// - Reliability sweep: fixed sliding cache TTL, streamed-response leaks on
+///   chain restarts, body-read timeouts, dedup cancellation isolation,
+///   YAML/OpenAPI generator validity, and more (see CHANGELOG)
 ///
 /// ## Version 1.3.0
 /// - Deep, backward-compatible customization on [ApiClientConfig]: configurable

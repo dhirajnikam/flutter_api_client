@@ -63,7 +63,12 @@ class DefaultHttpAdapter implements HttpAdapter, StreamingHttpAdapter {
       // the body is coalesced in a single pass instead of expand→toList→
       // Uint8List.fromList, which walked and boxed every byte three times.
       final builder = BytesBuilder(copy: false);
-      await for (final chunk in streamed.stream) {
+      // `.timeout` on client.send only covers the headers; a body that stalls
+      // mid-dribble would otherwise hang forever. Re-arm the same timeout per
+      // chunk so a stalled body surfaces as a TimeoutError too (the await-for
+      // cancels the subscription, and `finally` closes the owned client).
+      final body = streamed.stream.timeout(request.timeout);
+      await for (final chunk in body) {
         if (cancelled) {
           throw request.cancelToken?.error ?? const CancelError();
         }

@@ -33,8 +33,9 @@ class OpenApiGenerator {
         if (spec.license != null) 'license': spec.license,
       },
       'servers': [
-        if (spec.servers.isEmpty) {'url': spec.baseUrl},
-        for (final s in spec.servers) {'url': s},
+        {'url': spec.baseUrl},
+        for (final s in spec.servers)
+          if (s != spec.baseUrl) {'url': s},
       ],
       'paths': paths,
     };
@@ -92,6 +93,13 @@ class OpenApiGenerator {
             },
           },
       };
+    }
+    if (responses.isEmpty) {
+      // OpenAPI 3.1 requires at least one response per operation. An endpoint
+      // declared without responses is served as `204 No Content` by
+      // SpecMockAdapter (and documented as such by BackendGuideGenerator), so
+      // mirror that here.
+      responses['204'] = {'description': 'No Content'};
     }
     op['responses'] = responses;
     return op;
@@ -157,14 +165,18 @@ class OpenApiGenerator {
       if (value.isEmpty) return '{}';
       final buf = StringBuffer();
       value.forEach((k, v) {
+        // Keys go through the same quoting as string values: the JSON document
+        // uses string keys like '200', which a YAML parser would otherwise
+        // load as the integer 200.
+        final key = k is String ? _yamlString(k) : _toYaml(k, 0);
         // Non-empty collections nest on the following lines; scalars, nulls and
         // empty collections render inline so YAML stays faithful to the JSON
         // document (e.g. `security: []` and empty example arrays survive).
         if ((v is Map && v.isNotEmpty) || (v is List && v.isNotEmpty)) {
-          buf.writeln('$pad$k:');
+          buf.writeln('$pad$key:');
           buf.writeln(_toYaml(v, indent + 1));
         } else {
-          buf.writeln('$pad$k: ${_toYaml(v, 0)}');
+          buf.writeln('$pad$key: ${_toYaml(v, 0)}');
         }
       });
       return buf.toString().trimRight();
@@ -172,13 +184,70 @@ class OpenApiGenerator {
     return value.toString();
   }
 
+  /// Plain YAML scalars that a parser would load as a non-string type. A
+  /// string-typed JSON value matching one of these must be quoted so it stays
+  /// a string when the YAML is loaded.
+  static const _yamlTypedScalars = {
+    'true', 'false', 'null', 'yes', 'no', 'on', 'off', 'y', 'n', '~', //
+  };
+
+  /// Matches YAML 1.1/1.2 numeric scalar forms (ints incl. hex/octal, floats,
+  /// infinities and NaN). Fixed pattern, compiled once.
+  static final RegExp _yamlNumeric = RegExp(
+    r'^([-+]?\d[\d_]*(\.[\d_]*)?([eE][-+]?\d+)?'
+    r'|[-+]?\.\d[\d_]*([eE][-+]?\d+)?'
+    r'|0[xX][0-9a-fA-F_]+'
+    r'|0[oO][0-7_]+'
+    r'|[-+]?\.(inf|Inf|INF)'
+    r'|\.(nan|NaN|NAN))$',
+  );
+
   String _yamlString(String s) {
     if (s.isEmpty) return '""';
     final needsQuoting = _yamlSpecial.hasMatch(s) ||
         s.startsWith(' ') ||
         s.endsWith(' ') ||
-        const ['true', 'false', 'null', 'yes', 'no'].contains(s.toLowerCase());
-    if (needsQuoting) return '"${s.replaceAll('"', r'\"')}"';
+        s.contains('\\') ||
+        s.contains('"') ||
+        s.contains("'") ||
+        s.codeUnits.any((c) => c < 0x20 || c == 0x7F) ||
+        _yamlTypedScalars.contains(s.toLowerCase()) ||
+        _yamlNumeric.hasMatch(s);
+    if (needsQuoting) return _quoteYaml(s);
     return s;
+  }
+
+  /// Renders [s] as a double-quoted YAML scalar, escaping backslashes and
+  /// quotes and emitting control characters as proper YAML escapes — without
+  /// this, a value like a regex `^\d{4}$` or a multi-line description would
+  /// produce unparseable YAML.
+  String _quoteYaml(String s) {
+    final buf = StringBuffer('"');
+    for (final code in s.codeUnits) {
+      switch (code) {
+        case 0x5C: // backslash — must be escaped first conceptually; here we
+          buf.write(r'\\'); // emit per-character so no double-escaping occurs.
+        case 0x22: // "
+          buf.write(r'\"');
+        case 0x08:
+          buf.write(r'\b');
+        case 0x09:
+          buf.write(r'\t');
+        case 0x0A:
+          buf.write(r'\n');
+        case 0x0C:
+          buf.write(r'\f');
+        case 0x0D:
+          buf.write(r'\r');
+        default:
+          if (code < 0x20 || code == 0x7F) {
+            buf.write('\\x${code.toRadixString(16).padLeft(2, '0').toUpperCase()}');
+          } else {
+            buf.writeCharCode(code);
+          }
+      }
+    }
+    buf.write('"');
+    return buf.toString();
   }
 }

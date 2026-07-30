@@ -212,6 +212,9 @@ class Schema {
           if (maximum != null && value > maximum!) {
             errors.add('$path: maximum $maximum');
           }
+          if (enumValues != null && !enumValues!.contains(value)) {
+            errors.add('$path: not in enum $enumValues');
+          }
         }
         break;
       case 'number':
@@ -224,10 +227,17 @@ class Schema {
           if (maximum != null && value > maximum!) {
             errors.add('$path: maximum $maximum');
           }
+          if (enumValues != null && !enumValues!.contains(value)) {
+            errors.add('$path: not in enum $enumValues');
+          }
         }
         break;
       case 'boolean':
-        if (value is! bool) errors.add('$path: expected boolean');
+        if (value is! bool) {
+          errors.add('$path: expected boolean');
+        } else if (enumValues != null && !enumValues!.contains(value)) {
+          errors.add('$path: not in enum $enumValues');
+        }
         break;
       case 'object':
         if (value is! Map) {

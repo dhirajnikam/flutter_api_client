@@ -3,6 +3,7 @@ import 'dart:math';
 import '../../core/api_exception.dart';
 import '../../core/policies.dart';
 import '../../http/http_adapter.dart';
+import '../internal_headers.dart';
 
 /// Decides whether and when to retry a failed request.
 class RetryPolicy implements RetryPolicyInterface {
@@ -126,8 +127,7 @@ class RetryPolicy implements RetryPolicyInterface {
   /// HTTP-date. Returns null for a missing, negative, or unparseable value
   /// so the caller falls back to exponential backoff.
   Duration? _parseRetryAfter(AdapterResponse res) {
-    final ra =
-        (res.headers['retry-after'] ?? res.headers['Retry-After'])?.trim();
+    final ra = headerValue(res.headers, 'retry-after')?.trim();
     if (ra == null || ra.isEmpty) return null;
     final secs = int.tryParse(ra);
     if (secs != null) return secs < 0 ? null : Duration(seconds: secs);

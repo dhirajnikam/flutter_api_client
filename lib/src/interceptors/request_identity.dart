@@ -32,6 +32,11 @@ Map<String, String> stripInternalRequestHeaders(Map<String, String> headers) {
 /// and the request headers sorted by name. `If-None-Match` and the internal
 /// `x-fac-*` headers are excluded so that a conditional revalidation request
 /// keys to the same entry as the original.
+///
+/// The `Authorization` header is deliberately part of the key: cached bodies
+/// must never leak across credentials, so a token refresh cold-starts the
+/// cache and stops dedup coalescing across the refresh boundary. That
+/// re-fetch cost is the accepted price of credential isolation.
 String requestIdentityKey(InterceptedRequest req) {
   final url = buildUri(
     baseUrl: req.options.baseUrlOverride ?? '',

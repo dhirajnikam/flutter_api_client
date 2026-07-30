@@ -4,11 +4,12 @@
 **Type**: Minor Release (additive)  
 **Breaking Changes**: None (fully backward compatible with 1.3.x)
 
-This release makes the offline story smooth end-to-end: queued writes now
+This release makes the offline story smooth end-to-end — queued writes now
 replay against exactly the URL they originally targeted, the built-in stores
 survive a crash mid-replay, and both ends of the pipeline gained observability
-hooks. Every change is additive; existing code and previously persisted queue
-records keep working unchanged.
+hooks — and ships a full-codebase reliability sweep (caching, retries, dedup,
+auth storage, transport, and the spec generators). Every change is additive;
+existing code and previously persisted queue records keep working unchanged.
 
 ### Added
 
@@ -46,6 +47,77 @@ records keep working unchanged.
 * **Multipart requests are no longer queued.** File/stream payloads cannot be
   persisted and replayed faithfully; previously they could poison a persistent
   store's JSON encoding at enqueue time.
+
+### Added (reliability sweep)
+
+* **`CachedTokenStorage.onWriteError`** — background delegate writes are now
+  chained in order and their failures reported through this optional callback
+  instead of surfacing as unhandled zone errors; `clear()` flushes pending
+  writes first so an in-flight token write can no longer land *after* logout
+  and resurrect the credential.
+* **`ResponseHandler(charset: …)` / `PrettyLogger(charset: …)`** — both now
+  honour a configurable charset (still UTF-8 by default), and `ApiClient`
+  passes its configured `charset` into the default handler, so error messages
+  from non-UTF-8 APIs decode correctly.
+
+### Fixed (core client)
+
+* **Cache TTL no longer slides on every hit.** Serving an entry from the cache
+  re-wrote it with a fresh `savedAt`, so a steadily re-read entry never
+  expired and the origin was never re-contacted. Freshness is now measured
+  from when the body was actually fetched.
+* **A 304 whose cache entry was evicted mid-flight re-fetches** the full body
+  (dropping the stale `If-None-Match`) instead of surfacing an empty
+  `HttpError 304` to the caller.
+* **`cacheOnly` misses fail fast** — the synthetic 504 is no longer routed
+  through retry backoff.
+* **Streamed responses discarded by a chain restart are drained**, releasing
+  the adapter's owned HTTP client (previously leaked once per retry/refresh
+  on the streaming path).
+* **The request timeout now covers the response body read** in the buffered
+  path — a server that sends headers then stalls the body surfaces a
+  `TimeoutError` instead of hanging forever.
+* **Dedup cancellation isolation.** A cancelled leader no longer fails
+  coalesced followers (they fall back to their own request), and a follower
+  whose own token fires stops waiting immediately instead of blocking on the
+  leader.
+* **Interceptor cleanup on retry-depth exhaustion.** The depth-limit error now
+  runs interceptors' `onError` (without allowing restarts), so dedup releases
+  its in-flight entry instead of stalling every future identical request for
+  the full `waitTimeout`.
+* **`ETag` and `Retry-After` response headers are read case-insensitively.**
+* Documented that the request identity key deliberately includes
+  `Authorization` (credential isolation for cache/dedup).
+
+### Fixed (spec tooling & GraphQL)
+
+* **Generated YAML is now always parseable and type-faithful**: backslashes,
+  newlines, tabs, and control characters are properly escaped; numeric-looking
+  and YAML-keyword strings (including map keys like `'200'`) are quoted.
+* **OpenAPI documents are valid for response-less endpoints** — a default
+  `204 No Content` entry is emitted instead of an empty (invalid) `responses`
+  object, matching `SpecMockAdapter`'s behavior.
+* **`ApiSpec.servers` is additive again**: `baseUrl` is always emitted first,
+  as documented, instead of being replaced.
+* **`SpecMockAdapter`**: `statusOverrides` no longer throws for endpoints with
+  no declared responses; GraphQL `statusOverrides` apply even when the
+  operation declares no `errors`; bodyless requests are validated against the
+  declared schema; literal path segments now beat `{param}` placeholders when
+  routes are ambiguous.
+* **`TestGenerator`**: generated files compile for GET/DELETE endpoints with
+  request schemas; the 422 validation test is only emitted when the schema
+  actually has required members; `QUERY` endpoints generate real tests via
+  `client.query`; all interpolated strings (titles, paths, base URLs) are
+  escaped.
+* **`BackendGuideGenerator`** renders FastAPI routes with `{param}` templates
+  instead of Express-style `:param`.
+* **`GraphQLClient`** surfaces the underlying transport error via
+  `networkError` when the response has no GraphQL envelope (e.g. an HTML
+  captive-portal page), instead of returning an empty response.
+* **`Schema.enumValues` are enforced for integer/number/boolean** fields, not
+  just strings.
+* Doc corrections: real `--only` generator names, current dependency version
+  in API_SERVICES_GUIDE, de-versioned README comparison table.
 
 ## 1.3.1
 

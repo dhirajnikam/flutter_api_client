@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import '../../core/api_exception.dart';
 import '../../http/http_adapter.dart';
 import '../interceptor.dart';
+import '../internal_headers.dart';
 import '../request_identity.dart';
 import 'cache_policy.dart';
 import 'cache_store.dart';
@@ -29,7 +30,7 @@ class CacheInterceptor extends Interceptor {
   /// HTTP methods eligible for caching (compared case-insensitively).
   final Set<String> cacheMethods;
 
-  static const _hitHeader = 'x-fac-cache-hit';
+  static const _hitHeader = cacheHitHeader;
 
   CachePolicy? _policyFor(InterceptedRequest req) {
     final override = req.options.cachePolicy;
@@ -54,7 +55,7 @@ class CacheInterceptor extends Interceptor {
         return ResolveResult(
           AdapterResponse(
             statusCode: 504,
-            headers: const {_hitHeader: 'miss'},
+            headers: const {_hitHeader: cacheMissValue},
             bodyBytes: Uint8List(0),
             reasonPhrase: 'Gateway Timeout (cache-only miss)',
           ),
@@ -95,32 +96,45 @@ class CacheInterceptor extends Interceptor {
     }
     // A streaming body is not buffered, so there is nothing to cache.
     if (res.bodyStream != null) return ResolveResult(res);
+    // A response we served ourselves (cache hit, stale-on-error fallback, or
+    // the synthetic cacheOnly-miss 504) carries the marker header. Re-writing
+    // it would refresh savedAt on every hit, sliding the TTL so a steadily
+    // re-read entry never expires; freshness must be measured from when the
+    // body was actually fetched from the origin, so skip the store entirely.
+    if (res.headers[_hitHeader] != null) return ResolveResult(res);
     final policy = _policyFor(req);
     if (policy == null) return ResolveResult(res);
 
     if (res.statusCode == 304) {
       final key = _key(req);
       final entry = await store.read(key);
-      if (entry != null) {
-        // A 304 means the origin confirmed the cached body is still current,
-        // so restart its freshness window. Without refreshing savedAt the
-        // entry stays "stale" forever and every future request revalidates,
-        // defeating the TTL. Carry forward an updated ETag if the 304 sent one.
-        final refreshed = CacheEntry(
-          key: entry.key,
-          statusCode: entry.statusCode,
-          headers: entry.headers,
-          bodyBytes: entry.bodyBytes,
-          savedAt: DateTime.now(),
-          etag: res.headers['etag'] ?? res.headers['ETag'] ?? entry.etag,
-        );
-        await store.write(refreshed);
-        return ResolveResult(_toResponse(refreshed));
+      if (entry == null) {
+        // The entry was evicted while the conditional request was in flight:
+        // a bare 304 has no body to serve. Drop the stale validator and re-run
+        // the chain for a full response (bounded by the chain's retryDepth).
+        await store.delete(key);
+        final retry = req.copy();
+        retry.headers.removeWhere((k, _) => k.toLowerCase() == 'if-none-match');
+        return ProceedResult(retry);
       }
+      // A 304 means the origin confirmed the cached body is still current,
+      // so restart its freshness window. Without refreshing savedAt the
+      // entry stays "stale" forever and every future request revalidates,
+      // defeating the TTL. Carry forward an updated ETag if the 304 sent one.
+      final refreshed = CacheEntry(
+        key: entry.key,
+        statusCode: entry.statusCode,
+        headers: entry.headers,
+        bodyBytes: entry.bodyBytes,
+        savedAt: DateTime.now(),
+        etag: headerValue(res.headers, 'etag') ?? entry.etag,
+      );
+      await store.write(refreshed);
+      return ResolveResult(_toResponse(refreshed));
     }
     if (res.statusCode >= 200 && res.statusCode < 300) {
       final key = _key(req);
-      final etag = res.headers['etag'] ?? res.headers['ETag'];
+      final etag = headerValue(res.headers, 'etag');
       await store.write(
         CacheEntry(
           key: key,
@@ -173,7 +187,7 @@ class CacheInterceptor extends Interceptor {
   /// marker header so downstream code can tell it came from the cache.
   AdapterResponse _toResponse(CacheEntry e) => AdapterResponse(
         statusCode: e.statusCode,
-        headers: {...e.headers, _hitHeader: 'hit'},
+        headers: {...e.headers, _hitHeader: cacheHitValue},
         bodyBytes: e.bodyBytes,
       );
 

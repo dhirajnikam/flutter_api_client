@@ -329,7 +329,10 @@ class ApiClient implements ApiClientInterface {
   ApiClient(ApiClientConfig config)
       : _config = config,
         _adapter = config.adapter ?? DefaultHttpAdapter(),
-        _responseHandler = config.responseHandler ?? const ResponseHandler(),
+        // Only the default handler gets the configured charset; a caller's
+        // own handler is used verbatim.
+        _responseHandler =
+            config.responseHandler ?? ResponseHandler(charset: config.charset),
         _chain = InterceptorChain([
           ..._buildAutoAuthInterceptor(config),
           ...config.interceptors,

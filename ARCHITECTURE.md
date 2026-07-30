@@ -156,6 +156,8 @@ delay = min(baseDelay * 2^attempt + jitter, maxDelay)
 
 **Design Decision**: Cache key is `method:url`. Query params are part of URL, so different params = different cache entries.
 
+**Design Decision**: The identity key (see `requestIdentityKey`) also includes the request headers — notably `Authorization`. Cached bodies must never leak across credentials, so a token refresh deliberately cold-starts the cache (and stops dedup coalescing) across the refresh boundary. The one-time re-fetch after a refresh is the accepted price of credential isolation.
+
 ### DedupInterceptor
 
 **Location**: `lib/src/interceptors/dedup/dedup_interceptor.dart`
@@ -433,7 +435,7 @@ abstract class TokenStorage {
 **gen.dart** (`bin/gen.dart`):
 - Discovers specs in project
 - Generates OpenAPI, Markdown, backend guide, tests
-- Flags: `--only tests`, `--only docs`
+- Flags: `--only` with any of `openapi`, `reference`, `backend`, `tests` (comma-separated), e.g. `--only tests` or `--only openapi,backend`
 
 **Design Decision**: Separate CLI from build_runner allows on-demand doc generation without full rebuild.
 

@@ -35,8 +35,20 @@ class DedupInterceptor extends Interceptor {
     if (req.headers[_keyHeader] == key) return ProceedResult(req);
     final existing = _inFlight[key];
     if (existing != null) {
+      final ownToken = req.options.cancelToken;
       try {
-        final res = await existing.future.timeout(waitTimeout);
+        var wait = existing.future.timeout(waitTimeout);
+        if (ownToken != null) {
+          // Race the wait against the follower's OWN token so its cancel is
+          // honoured promptly instead of blocking until the leader settles or
+          // the waitTimeout elapses. Future.any observes the losing future,
+          // so the leader's error stays handled either way.
+          wait = Future.any([
+            wait,
+            ownToken.whenCancelled.then<AdapterResponse>((err) => throw err),
+          ]);
+        }
+        final res = await wait;
         return ResolveResult(res);
       } on TimeoutException {
         // Leader appears stuck; proceed independently without disturbing it.
@@ -44,6 +56,15 @@ class DedupInterceptor extends Interceptor {
       } on _DedupNotShareable {
         // Leader returned a single-subscription stream that can't be shared.
         // Proceed independently rather than failing the follower.
+        return ProceedResult(req);
+      } on CancelError catch (e) {
+        // The follower's own token fired: fail with its own error.
+        if (ownToken?.isCancelled ?? false) {
+          return RejectResult(ownToken!.error ?? e);
+        }
+        // The LEADER was cancelled — the follower is innocent (its token was
+        // never cancelled), so issue its own request instead of inheriting a
+        // CancelError that no retry policy would retry.
         return ProceedResult(req);
       }
       // Any other error (the leader's ApiException) intentionally propagates:

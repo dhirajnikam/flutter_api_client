@@ -114,7 +114,7 @@ flutter test --concurrency=8
 
 ### Feature Comparison
 
-| Feature | `dio` | `http` | `flutter_api_client` 1.1 |
+| Feature | `dio` | `http` | `flutter_api_client` |
 |---|---|---|---|
 | Typed `get<T>` / `post<T>` with decoder | manual | no | ✅ built-in |
 | Sealed `ApiResult<T>` (Success / Failure) | no | no | ✅ built-in |

@@ -66,8 +66,12 @@ class SpecMockAdapter implements HttpAdapter {
         }),
       );
     }
-    if (validateRequests && match.request?.schema != null && req.body != null) {
-      final body = _decodeBody(req);
+    if (validateRequests && match.request?.schema != null) {
+      // A missing body is validated as an empty object: an endpoint whose
+      // schema declares required fields must reject a bodyless request rather
+      // than skip validation entirely.
+      final body =
+          req.body == null ? const <String, Object?>{} : _decodeBody(req);
       final errors = match.request!.schema!.validate(body);
       if (errors.isNotEmpty) {
         return AdapterResponse(
@@ -84,6 +88,14 @@ class SpecMockAdapter implements HttpAdapter {
     final overrideKey = '${match.method} ${match.path}';
     final overrideStatus = statusOverrides[overrideKey];
     if (overrideStatus != null) {
+      if (match.responses.isEmpty) {
+        // No declared responses to borrow a body from: synthesize a minimal
+        // one so the override still takes effect instead of throwing.
+        return _toResponse(
+          ResponseExample(statusCode: overrideStatus),
+          statusCode: overrideStatus,
+        );
+      }
       final picked = match.responses.firstWhere(
         (r) => r.statusCode == overrideStatus,
         orElse: () => match.responses.first,
@@ -142,14 +154,26 @@ class SpecMockAdapter implements HttpAdapter {
     // loop iteration.
     final stripped = _stripBase(path);
     final hasStripped = stripped != path;
+    // Among matching declarations, prefer the one with the fewest path
+    // placeholders so a literal route (`/users/me`) is not swallowed by a
+    // templated one declared earlier (`/users/{id}`). Ties keep declaration
+    // order: a candidate only replaces the current best when strictly fewer.
+    EndpointSpec? best;
+    var bestPlaceholders = -1;
     for (final ep in spec.endpoints) {
       if (ep.method != upper) continue;
       final pattern = ep.pathPattern;
-      if (pattern.hasMatch(path)) return ep;
       // Also allow the spec base path prefix to be absent.
-      if (hasStripped && pattern.hasMatch(stripped)) return ep;
+      final matches = pattern.hasMatch(path) ||
+          (hasStripped && pattern.hasMatch(stripped));
+      if (!matches) continue;
+      final placeholders = ep.pathParamNames.length;
+      if (best == null || placeholders < bestPlaceholders) {
+        best = ep;
+        bestPlaceholders = placeholders;
+      }
     }
-    return null;
+    return best;
   }
 
   String _stripBase(String path) {
@@ -234,8 +258,19 @@ class SpecMockAdapter implements HttpAdapter {
 
     final overrideKey = 'GQL ${op.name}';
     final overrideStatus = statusOverrides[overrideKey];
-    if (overrideStatus != null && op.errors.isNotEmpty) {
-      return _gqlResponse(overrideStatus, errors: op.errors);
+    if (overrideStatus != null) {
+      // The override must always take effect: when the operation declares no
+      // example errors, synthesize a generic one instead of ignoring it.
+      final errors = op.errors.isNotEmpty
+          ? op.errors
+          : <GraphQLErrorExample>[
+              GraphQLErrorExample(
+                message: 'Mocked error for ${op.name} '
+                    '(statusOverrides: $overrideStatus)',
+                extensions: const {'code': 'MOCKED_ERROR'},
+              ),
+            ];
+      return _gqlResponse(overrideStatus, errors: errors);
     }
     return _gqlResponse(200, data: op.responseExample);
   }

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../../core/api_exception.dart';
+import '../../core/serialization.dart';
 import '../../http/http_adapter.dart';
 import '../interceptor.dart';
 import 'redaction.dart';
@@ -37,6 +38,7 @@ class PrettyLogger extends Interceptor {
     this.requestBody = true,
     this.responseBody = true,
     this.useColors = true,
+    this.charset = const Utf8Charset(),
   });
 
   /// Sink each formatted block is written to. Defaults to `print`.
@@ -58,6 +60,10 @@ class PrettyLogger extends Interceptor {
 
   /// Whether to wrap output in ANSI color codes.
   final bool useColors;
+
+  /// Charset used to decode response bodies for logging. Defaults to UTF-8;
+  /// bodies that fail to decode are simply not logged.
+  final Charset charset;
 
   static const _reset = '\u001B[0m';
   static const _cyan = '\u001B[36m';
@@ -111,7 +117,7 @@ class PrettyLogger extends Interceptor {
     });
     if (responseBody) {
       try {
-        final body = utf8.decode(res.bodyBytes);
+        final body = charset.decode(res.bodyBytes);
         if (body.isNotEmpty) {
           final preview =
               body.length > 2000 ? '${body.substring(0, 2000)}…' : body;
