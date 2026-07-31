@@ -1,6 +1,7 @@
 import '../../core/api_exception.dart';
 import '../../http/http_adapter.dart';
 import '../interceptor.dart';
+import '../internal_headers.dart';
 import 'retry_policy.dart';
 
 /// Retries failed requests according to a [RetryPolicy].
@@ -20,12 +21,24 @@ class RetryInterceptor extends Interceptor {
   ) async {
     final policy = _policyFor(req);
     final attempt = _attempt(req);
+    if (_isSyntheticCacheMiss(res)) return ResolveResult(res);
     if (policy.shouldRetryResponse(res, attempt, method: req.method)) {
       await Future.delayed(policy.delayFor(attempt, res));
       return ProceedResult(_nextAttempt(req, attempt));
     }
     return ResolveResult(res);
   }
+
+  /// Whether [res] is the synthetic 504 the cache interceptor fabricates for
+  /// a cacheOnly miss. The miss is known synchronously and locally, so backing
+  /// off and retrying it can never change the outcome. The marker is trusted
+  /// only on a 504 whose value matches the synthetic constant exactly; a real
+  /// origin could in principle echo the same header on a genuine 504 and
+  /// suppress its retries, which we accept — it only skips retries of an
+  /// already-failing response.
+  bool _isSyntheticCacheMiss(AdapterResponse res) =>
+      res.statusCode == 504 &&
+      headerValue(res.headers, cacheHitHeader) == cacheMissValue;
 
   @override
   Future<InterceptorResult> onError(

@@ -41,7 +41,7 @@ class TestGenerator {
       ..writeln("import 'package:flutter_api_client/flutter_api_client.dart';")
       ..writeln("import 'package:flutter_test/flutter_test.dart';");
     if (specImport != null) {
-      header.writeln("import '$specImport';");
+      header.writeln("import '${_escapeDartString(specImport!)}';");
     }
 
     final byTag = <String, List<EndpointSpec>>{};
@@ -55,7 +55,7 @@ class TestGenerator {
         for (final ep in endpoints) ..._endpointTestBlocks(ep),
       ];
       final body = blocks.join('\n\n');
-      groups.add("  group('$tag', () {\n$body\n  });");
+      groups.add("  group('${_escapeDartString(tag)}', () {\n$body\n  });");
     });
 
     return '$header\nvoid main() {\n${groups.join('\n\n')}\n}\n';
@@ -64,7 +64,18 @@ class TestGenerator {
   // Verbs the generated client (ApiClient) actually exposes. A spec endpoint
   // using anything else (e.g. HEAD) would emit `client.head(...)`, which does
   // not compile — so skip it with a visible note instead.
-  static const _supportedMethods = {'GET', 'POST', 'PUT', 'PATCH', 'DELETE'};
+  static const _supportedMethods = {
+    'GET',
+    'POST',
+    'PUT',
+    'PATCH',
+    'DELETE',
+    'QUERY',
+  };
+
+  // Verbs whose ApiClient method takes a request body as the second
+  // positional argument. GET and DELETE take only the path.
+  static const _bodyMethods = {'POST', 'PUT', 'PATCH', 'QUERY'};
 
   /// Builds the individual `test(...)` blocks for one endpoint. Each returned
   /// string is a self-contained block with no leading or trailing blank line;
@@ -77,28 +88,36 @@ class TestGenerator {
       ];
     }
     final baseUrl = spec.baseUrl;
-    final methodKey = '${ep.method} ${ep.path}';
+    final methodKey = _escapeDartString('${ep.method} ${ep.path}');
+    final title = _escapeDartString('${ep.method} ${ep.path}');
     final concretePath = ep.path
         .replaceAllMapped(_placeholder, (_) => '1')
         .replaceFirst(_leadingSlash, '');
-    final method = ep.method.toLowerCase();
     final blocks = <String>[];
 
     // Happy path
     blocks.add([
-      "    test('${ep.method} ${ep.path} — happy path', () async {",
+      "    test('$title — happy path', () async {",
       _clientSetup(baseUrl, null),
       _callLine(ep, concretePath),
       '      expect(res.isSuccess, true);',
       '    });',
     ].join('\n'));
 
-    // Schema validation failure
-    if (ep.request?.schema != null) {
+    // Schema validation failure. Only meaningful when the verb carries a body
+    // and the schema actually rejects an empty object (i.e. it has at least
+    // one required member) — otherwise the mock would return the success
+    // status and the hard-coded 422 assertion would fail.
+    final schema = ep.request?.schema;
+    final hasRequiredMember =
+        schema?.properties?.values.any((s) => s.required) ?? false;
+    if (schema != null &&
+        hasRequiredMember &&
+        _bodyMethods.contains(ep.method.toUpperCase())) {
       blocks.add([
-        "    test('${ep.method} ${ep.path} — schema validation rejects bad body', () async {",
+        "    test('$title — schema validation rejects bad body', () async {",
         _clientSetup(baseUrl, null),
-        "      final res = await client.$method<dynamic>('$concretePath', <String, dynamic>{});",
+        _callLine(ep, concretePath, bodyLiteral: '<String, dynamic>{}'),
         '      expect(res.statusCode, 422);',
         '    });',
       ].join('\n'));
@@ -107,7 +126,7 @@ class TestGenerator {
     // Auth required
     if (ep.auth) {
       blocks.add([
-        "    test('${ep.method} ${ep.path} — auth required returns 401', () async {",
+        "    test('$title — auth required returns 401', () async {",
         _clientSetup(baseUrl, "'$methodKey': 401"),
         _callLine(ep, concretePath),
         '      expect(res.statusCode, 401);',
@@ -118,7 +137,7 @@ class TestGenerator {
     // Explicit error responses
     for (final r in ep.responses.where((r) => !r.isSuccess)) {
       blocks.add([
-        "    test('${ep.method} ${ep.path} — returns ${r.statusCode}', () async {",
+        "    test('$title — returns ${r.statusCode}', () async {",
         _clientSetup(baseUrl, "'$methodKey': ${r.statusCode}"),
         _callLine(ep, concretePath),
         '      expect(res.statusCode, ${r.statusCode});',
@@ -140,20 +159,22 @@ class TestGenerator {
             '          )';
     return '      final client = ApiClient(\n'
         '        ApiClientConfig.test(\n'
-        "          baseUrl: '$baseUrl',\n"
+        "          baseUrl: '${_escapeDartString(baseUrl)}',\n"
         '          adapter: $adapter,\n'
         '        ),\n'
         '      );';
   }
 
-  String _callLine(EndpointSpec ep, String path) {
+  String _callLine(EndpointSpec ep, String path, {String? bodyLiteral}) {
     final method = ep.method.toLowerCase();
-    if (method == 'get' || method == 'delete') {
-      return "      final res = await client.$method<dynamic>('$path');";
+    final escapedPath = _escapeDartString(path);
+    if (!_bodyMethods.contains(ep.method.toUpperCase())) {
+      return "      final res = await client.$method<dynamic>('$escapedPath');";
     }
     final body = ep.request?.body;
-    final literal = body != null ? _dartLiteral(body) : '<String, dynamic>{}';
-    return "      final res = await client.$method<dynamic>('$path', $literal);";
+    final literal = bodyLiteral ??
+        (body != null ? _dartLiteral(body) : '<String, dynamic>{}');
+    return "      final res = await client.$method<dynamic>('$escapedPath', $literal);";
   }
 
   String _dartLiteral(Object? value) {

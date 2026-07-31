@@ -24,6 +24,8 @@ class InterceptorChain {
   /// The interceptors this chain coordinates.
   final List<Interceptor> interceptors;
 
+  static const _depthExceeded = UnknownError('Interceptor retry depth exceeded');
+
   /// Runs [request] through the chain and [transport], returning the final
   /// response or throwing the final [ApiException].
   ///
@@ -35,7 +37,18 @@ class InterceptorChain {
     int retryDepth = 0,
   }) async {
     if (retryDepth > 8) {
-      throw const UnknownError('Interceptor retry depth exceeded');
+      // Don't throw past the interceptors: give them one onError pass so they
+      // can clean up per-request state (e.g. dedup must release its in-flight
+      // entry or every future identical request stalls on a dead leader).
+      // Proceeding is disabled on this pass so the chain cannot restart and
+      // recurse back here.
+      return _handleError(
+        request,
+        transport,
+        retryDepth,
+        _depthExceeded,
+        allowProceed: false,
+      );
     }
 
     InterceptedRequest current = request;
@@ -71,23 +84,39 @@ class InterceptorChain {
     InterceptedRequest req,
     AdapterResponse res,
     Transport transport,
-    int retryDepth,
-  ) async {
+    int retryDepth, {
+    bool allowProceed = true,
+  }) async {
     AdapterResponse current = res;
     for (final i in interceptors.reversed) {
       InterceptorResult r;
       try {
         r = await i.onResponse(req, current);
       } catch (e, st) {
+        await _discard(current);
+        if (!allowProceed) throw _wrap(e, st);
         return _handleError(req, transport, retryDepth, _wrap(e, st));
       }
       switch (r) {
         case ResolveResult(:final response):
+          // The old response is discarded when it is replaced; drain its body
+          // stream (unless the replacement reuses it) or the adapter's owned
+          // client is never released (cleanup runs from controller.done).
+          if (!identical(response, current) &&
+              current.bodyStream != null &&
+              !identical(response.bodyStream, current.bodyStream)) {
+            await _discard(current);
+          }
           current = response;
         case RejectResult(:final error):
+          await _discard(current);
+          if (!allowProceed) throw error;
           return _handleError(req, transport, retryDepth, error);
         case ProceedResult(:final request):
-          // Restart the chain with the (possibly mutated) request.
+          // Restart the chain with the (possibly mutated) request. The
+          // current response is discarded, so drain it first.
+          await _discard(current);
+          if (!allowProceed) throw _depthExceeded;
           return run(
             request: request,
             transport: transport,
@@ -102,8 +131,9 @@ class InterceptorChain {
     InterceptedRequest req,
     Transport transport,
     int retryDepth,
-    ApiException error,
-  ) async {
+    ApiException error, {
+    bool allowProceed = true,
+  }) async {
     ApiException current = error;
     for (final i in interceptors.reversed) {
       InterceptorResult r;
@@ -115,18 +145,40 @@ class InterceptorChain {
       }
       switch (r) {
         case ResolveResult(:final response):
-          return _afterResponse(req, response, transport, retryDepth);
-        case ProceedResult(:final request):
-          return run(
-            request: request,
-            transport: transport,
-            retryDepth: retryDepth + 1,
+          return _afterResponse(
+            req,
+            response,
+            transport,
+            retryDepth,
+            allowProceed: allowProceed,
           );
+        case ProceedResult(:final request):
+          if (allowProceed) {
+            return run(
+              request: request,
+              transport: transport,
+              retryDepth: retryDepth + 1,
+            );
+          }
+        // Depth exceeded: this is a cleanup-only pass, so a proceed must not
+        // restart the chain. Keep the current error and let the remaining
+        // interceptors clean up too.
         case RejectResult(:final error):
           current = error;
       }
     }
     throw current;
+  }
+
+  /// Drains the body stream of a response that is being discarded, so the
+  /// adapter behind it can release its resources. Errors (including an
+  /// already-listened stream) are swallowed: the response is dead either way.
+  Future<void> _discard(AdapterResponse res) async {
+    final stream = res.bodyStream;
+    if (stream == null) return;
+    try {
+      await stream.drain<void>();
+    } catch (_) {}
   }
 
   ApiException _wrap(Object e, StackTrace st) => e is ApiException

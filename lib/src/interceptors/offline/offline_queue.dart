@@ -19,6 +19,20 @@ abstract class OfflineQueueStore {
   Future<int> get length;
 }
 
+/// An [OfflineQueueStore] that can also be read non-destructively.
+///
+/// `OfflineQueueReplayer` prefers this capability when the store provides it:
+/// requests stay persisted until each one is individually removed after being
+/// resent, so a crash mid-replay can no longer lose the not-yet-sent tail the
+/// way a destructive [OfflineQueueStore.drain] can. Existing custom stores
+/// that only implement [OfflineQueueStore] keep working unchanged via the
+/// legacy drain-based replay path.
+abstract class PeekableOfflineQueueStore implements OfflineQueueStore {
+  /// Returns all pending requests in replay order (oldest
+  /// [QueuedRequest.createdAt] first) WITHOUT removing them.
+  Future<List<QueuedRequest>> peekAll();
+}
+
 /// A request captured while offline, pending replay.
 class QueuedRequest {
   /// Creates a queued request record.
@@ -30,6 +44,8 @@ class QueuedRequest {
     this.body,
     required this.createdAt,
     this.attempts = 0,
+    this.queryParameters,
+    this.baseUrlOverride,
   });
 
   /// Unique id within the queue; also the storage key for keyed stores.
@@ -54,6 +70,15 @@ class QueuedRequest {
   /// requests that keep failing instead of replaying them forever.
   final int attempts;
 
+  /// URL query parameters the original request carried, replayed alongside
+  /// [endpoint]. `null` when the request had none (or was queued by a version
+  /// that predates this field — older persisted records parse fine).
+  final Map<String, dynamic>? queryParameters;
+
+  /// Base-URL override the original request carried, if any, so the replay
+  /// targets the same host the original request did.
+  final String? baseUrlOverride;
+
   /// Returns a copy with [attempts] incremented by one.
   QueuedRequest withAttempt() => QueuedRequest(
         id: id,
@@ -63,6 +88,8 @@ class QueuedRequest {
         body: body,
         createdAt: createdAt,
         attempts: attempts + 1,
+        queryParameters: queryParameters,
+        baseUrlOverride: baseUrlOverride,
       );
 
   /// JSON representation for persistent stores.
@@ -74,6 +101,8 @@ class QueuedRequest {
         'body': body,
         'createdAt': createdAt.toIso8601String(),
         'attempts': attempts,
+        if (queryParameters != null) 'queryParameters': queryParameters,
+        if (baseUrlOverride != null) 'baseUrlOverride': baseUrlOverride,
       };
 
   /// Strict parse; throws [FormatException] on a malformed record.
@@ -120,6 +149,18 @@ class QueuedRequest {
         ? attemptsRaw
         : (attemptsRaw is num ? attemptsRaw.toInt() : 0);
 
+    Map<String, dynamic>? queryParameters;
+    final rawQuery = json['queryParameters'];
+    if (rawQuery is Map) {
+      queryParameters = <String, dynamic>{};
+      for (final entry in rawQuery.entries) {
+        final key = entry.key;
+        if (key is String) queryParameters[key] = entry.value;
+      }
+    }
+
+    final rawBaseUrl = json['baseUrlOverride'];
+
     return QueuedRequest(
       id: id,
       method: method,
@@ -128,13 +169,23 @@ class QueuedRequest {
       body: json['body'],
       createdAt: createdAt,
       attempts: attempts < 0 ? 0 : attempts,
+      queryParameters: queryParameters,
+      baseUrlOverride: rawBaseUrl is String ? rawBaseUrl : null,
     );
   }
 }
 
+/// Replay-order comparator shared by the built-in stores: oldest createdAt
+/// first, tie-broken by id so ordering is deterministic.
+int _replayOrder(QueuedRequest a, QueuedRequest b) {
+  final createdAt = a.createdAt.compareTo(b.createdAt);
+  if (createdAt != 0) return createdAt;
+  return a.id.compareTo(b.id);
+}
+
 /// Default in-memory queue store (volatile). Replace with a persistent
 /// implementation for real offline support.
-class InMemoryOfflineQueueStore implements OfflineQueueStore {
+class InMemoryOfflineQueueStore implements PeekableOfflineQueueStore {
   final List<QueuedRequest> _items = [];
 
   @override
@@ -147,15 +198,14 @@ class InMemoryOfflineQueueStore implements OfflineQueueStore {
     // Honour the OfflineQueueStore.drain contract (oldest createdAt first),
     // matching HiveOfflineQueueStore. Insertion order usually agrees, but a
     // re-enqueued request appends out of createdAt order.
-    final out = List<QueuedRequest>.from(_items)
-      ..sort((a, b) {
-        final createdAt = a.createdAt.compareTo(b.createdAt);
-        if (createdAt != 0) return createdAt;
-        return a.id.compareTo(b.id);
-      });
+    final out = List<QueuedRequest>.from(_items)..sort(_replayOrder);
     _items.clear();
     return out;
   }
+
+  @override
+  Future<List<QueuedRequest>> peekAll() async =>
+      List<QueuedRequest>.from(_items)..sort(_replayOrder);
 
   @override
   Future<void> remove(String id) async {
@@ -167,7 +217,7 @@ class InMemoryOfflineQueueStore implements OfflineQueueStore {
 }
 
 /// Persistent Hive-backed queue store.
-class HiveOfflineQueueStore implements OfflineQueueStore {
+class HiveOfflineQueueStore implements PeekableOfflineQueueStore {
   /// Creates a store backed by an open Hive [box] of JSON strings.
   HiveOfflineQueueStore(this.box);
 
@@ -179,12 +229,11 @@ class HiveOfflineQueueStore implements OfflineQueueStore {
     await box.put(request.id, jsonEncode(request.toJson()));
   }
 
-  @override
-  Future<List<QueuedRequest>> drain() async {
+  /// Parses every record defensively: a single corrupt or partially-written
+  /// value (e.g. from a crash mid-write) must not throw and abandon the whole
+  /// queue. Bad entries are skipped; everything decodable is still replayed.
+  List<QueuedRequest> _decodeAll() {
     final out = <QueuedRequest>[];
-    // Parse every record defensively: a single corrupt or partially-written
-    // value (e.g. from a crash mid-write) must not throw and abandon the whole
-    // queue. Bad entries are skipped; everything decodable is still replayed.
     for (final value in box.values) {
       QueuedRequest? parsed;
       try {
@@ -197,14 +246,18 @@ class HiveOfflineQueueStore implements OfflineQueueStore {
       }
       if (parsed != null) out.add(parsed);
     }
-    out.sort((a, b) {
-      final createdAt = a.createdAt.compareTo(b.createdAt);
-      if (createdAt != 0) return createdAt;
-      return a.id.compareTo(b.id);
-    });
+    return out..sort(_replayOrder);
+  }
+
+  @override
+  Future<List<QueuedRequest>> drain() async {
+    final out = _decodeAll();
     await box.clear();
     return out;
   }
+
+  @override
+  Future<List<QueuedRequest>> peekAll() async => _decodeAll();
 
   @override
   Future<void> remove(String id) async {

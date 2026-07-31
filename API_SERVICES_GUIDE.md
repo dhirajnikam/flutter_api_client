@@ -8,7 +8,7 @@
 
 ```yaml
 dependencies:
-  flutter_api_client: ^1.1.0
+  flutter_api_client: ^1.4.0
 
 dev_dependencies:
   build_runner: ^2.4.0

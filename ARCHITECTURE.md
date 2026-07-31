@@ -156,6 +156,8 @@ delay = min(baseDelay * 2^attempt + jitter, maxDelay)
 
 **Design Decision**: Cache key is `method:url`. Query params are part of URL, so different params = different cache entries.
 
+**Design Decision**: The identity key (see `requestIdentityKey`) also includes the request headers — notably `Authorization`. Cached bodies must never leak across credentials, so a token refresh deliberately cold-starts the cache (and stops dedup coalescing) across the refresh boundary. The one-time re-fetch after a refresh is the accepted price of credential isolation.
+
 ### DedupInterceptor
 
 **Location**: `lib/src/interceptors/dedup/dedup_interceptor.dart`
@@ -198,12 +200,15 @@ delay = min(baseDelay * 2^attempt + jitter, maxDelay)
 
 **Flow**:
 1. On network/timeout error, check `isOnline()`
-2. If offline and method is mutating (POST/PUT/PATCH/DELETE), enqueue
-3. Later, app calls `store.drain()` to replay
+2. If offline and method is mutating (POST/PUT/PATCH/DELETE) and not
+   multipart, enqueue (preserving query parameters and base-URL override;
+   the `Authorization` header is stripped) and fire the optional `onQueued`
+   callback
+3. Later, app runs `OfflineQueueReplayer.replay()` to deliver the queue
 
-**Persistence**: Implement `OfflineQueueStore` interface to persist queue across app restarts.
+**Persistence**: Implement `OfflineQueueStore` interface to persist queue across app restarts. Also implement `PeekableOfflineQueueStore` (both built-in stores do) to get crash-safe replay: requests stay persisted until each one is individually settled, instead of being destructively drained up front.
 
-**Design Decision**: Read-only methods (GET, HEAD) are never enqueued because retrying them later may return different data.
+**Design Decision**: Read-only methods (GET, HEAD) are never enqueued because retrying them later may return different data. A store failure while enqueueing never masks the original network error. Overlapping `replay()` calls coalesce into a single pass so a chatty connectivity listener cannot double-send the queue.
 
 ### Logging Interceptors
 
@@ -430,7 +435,7 @@ abstract class TokenStorage {
 **gen.dart** (`bin/gen.dart`):
 - Discovers specs in project
 - Generates OpenAPI, Markdown, backend guide, tests
-- Flags: `--only tests`, `--only docs`
+- Flags: `--only` with any of `openapi`, `reference`, `backend`, `tests` (comma-separated), e.g. `--only tests` or `--only openapi,backend`
 
 **Design Decision**: Separate CLI from build_runner allows on-demand doc generation without full rebuild.
 

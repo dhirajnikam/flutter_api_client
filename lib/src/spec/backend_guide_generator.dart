@@ -514,24 +514,26 @@ class BackendGuideGenerator {
   }
 
   String? _frameworkSnippet(EndpointSpec ep) {
-    final route = ep.path.replaceAllMapped(
+    // Path placeholders are framework-specific: Express and Gin use `:param`
+    // segments, while FastAPI uses `{param}` templates (the spec's own form).
+    final colonRoute = ep.path.replaceAllMapped(
       _placeholder,
       (m) => ':${m.group(1)}',
     );
     switch (framework) {
       case BackendFramework.express:
-        return "app.${ep.method.toLowerCase()}('$route', ${ep.auth ? 'requireAuth, ' : ''}async (req, res) => {\n"
+        return "app.${ep.method.toLowerCase()}('$colonRoute', ${ep.auth ? 'requireAuth, ' : ''}async (req, res) => {\n"
             "  // TODO: validate, then call service\n"
             "  res.status(${ep.firstSuccess?.statusCode ?? 200}).json({});\n"
             "});";
       case BackendFramework.fastapi:
         final params = ep.pathParams.keys.map((k) => '$k: str').join(', ');
-        return "@app.${ep.method.toLowerCase()}('$route')\n"
+        return "@app.${ep.method.toLowerCase()}('${ep.path}')\n"
             "async def ${_serviceName(ep)}($params):\n"
             "    # TODO: validate, call service\n"
             "    return {}";
       case BackendFramework.gin:
-        return "r.${ep.method.toUpperCase()}(\"$route\", func(c *gin.Context) {\n"
+        return "r.${ep.method.toUpperCase()}(\"$colonRoute\", func(c *gin.Context) {\n"
             "    // TODO: validate, call service\n"
             "    c.JSON(${ep.firstSuccess?.statusCode ?? 200}, gin.H{})\n"
             "})";

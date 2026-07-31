@@ -201,11 +201,16 @@ class GraphQLClient {
     final body =
         raw.data ?? (errorBody is Map<String, dynamic> ? errorBody : null);
     if (body == null) {
+      // No GraphQL envelope to parse. If the transport layer produced an
+      // error (e.g. a ParseError from a non-JSON body, or an HttpError whose
+      // body was not a JSON object), surface it so callers have something to
+      // log instead of an empty response that silently drops the cause.
       return GraphQLResponse<T>(
         statusCode: raw.statusCode ?? 0,
         data: null,
         errors: const [],
         isSuccess: raw.isSuccess,
+        networkError: raw.error,
       );
     }
     final errorsRaw = body['errors'];
