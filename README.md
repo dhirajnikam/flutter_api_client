@@ -28,6 +28,7 @@ a Markdown API reference, and a backend implementation guide.
    - [DedupInterceptor](#dedupinterceptor)
    - [AuthInterceptor](#authinterceptor)
    - [OfflineQueueInterceptor](#offlinequeueinterceptor)
+   - [CircuitBreakerInterceptor](#circuitbreakerinterceptor)
    - [CurlLogger](#curllogger)
    - [PrettyLogger](#prettylogger)
 10. [Cancel tokens](#cancel-tokens)
@@ -49,7 +50,7 @@ a Markdown API reference, and a backend implementation guide.
 
 ```yaml
 dependencies:
-  flutter_api_client: ^1.4.0
+  flutter_api_client: ^1.5.0
 
 dev_dependencies:
   build_runner: ^2.15.0
@@ -552,6 +553,14 @@ result.headers     // Map<String, String>
 
 // Transform the success value without unwrapping
 final nameResult = result.map((user) => user.name); // ApiResult<String>
+
+// Chain, translate, tap, and unwrap without nesting `when`s
+final page = result
+    .flatMap((user) => validate(user))       // ApiResult-producing step
+    .mapError((e) => UnknownError('Profile failed: ${e.message}', cause: e))
+    .onSuccess((user) => analytics.log('profile_loaded'))
+    .onFailure((e) => log.warning(e.message));
+final name = result.map((u) => u.name).getOrElse((_) => 'Guest');
 ```
 
 `ParseError` is used when a successful `ResponseType.json` response contains
@@ -756,8 +765,9 @@ await client.get('resource',
 ### `CacheInterceptor`
 
 Caches GET responses in a `CacheStore`. `MemoryCacheStore` is a bounded
-LRU cache (default 256 entries). For on-disk persistence implement the
-`CacheStore` interface backed by Hive, SQLite, etc.
+LRU cache (default 256 entries); `HiveCacheStore` persists entries on disk
+so cached reads survive app restarts. For other backends (SQLite, etc.)
+implement the `CacheStore` interface.
 
 **Cache modes:**
 
@@ -791,16 +801,21 @@ await client.get('config',
     options: RequestOptions(cachePolicy: CachePolicy.cacheOnly()));
 ```
 
-**Custom persistent store:**
+**Persistent store (offline reads):**
 
 ```dart
-class HiveCacheStore implements CacheStore {
-  @override Future<CacheEntry?> read(String key)        async { ... }
-  @override Future<void>        write(CacheEntry entry) async { ... }
-  @override Future<void>        delete(String key)      async { ... }
-  @override Future<void>        clear()                 async { ... }
-}
+final box = await Hive.openBox<String>('http_cache');
+
+CacheInterceptor(
+  store: HiveCacheStore(box, maxEntries: 512), // oldest savedAt evicted first
+  defaultPolicy: CachePolicy.cacheFirst(ttl: Duration(minutes: 10)),
+)
 ```
+
+Cached entries survive restarts, so `cacheFirst`/`cacheOnly` keep working
+after the app is relaunched offline. Corrupt or partially-written records
+read as cache misses and are deleted, never thrown. For other backends
+implement the four-method `CacheStore` interface.
 
 ---
 
@@ -920,6 +935,59 @@ still what the caller sees — a queueing failure never masks it.
 `HiveOfflineQueueStore` is the built-in persistent option. It stores each
 queued request as a JSON string in a user-supplied `Hive` box. Queue bodies
 must remain JSON-serialisable to persist cleanly.
+
+**Hands-free syncing** — `OfflineSyncManager` drives the replayer from a
+connectivity signal so you don't wire the listener plumbing yourself:
+
+```dart
+final sync = OfflineSyncManager(
+  replayer: OfflineQueueReplayer(store: store, client: client),
+  onlineStream: Connectivity()                     // any Stream<bool> works
+      .onConnectivityChanged
+      .map((r) => !r.contains(ConnectivityResult.none)),
+  retryDelay: const Duration(seconds: 30),
+  replayOnStart: true,   // drain writes queued in a previous session
+  onReport: (report) => log('offline sync: $report'),
+);
+sync.start();
+// sync.syncNow();      // e.g. when the app is foregrounded
+// await sync.dispose(); // on teardown
+```
+
+Every online event triggers a replay pass (overlapping triggers coalesce);
+if a pass leaves transient failures re-enqueued, another pass runs after
+`retryDelay` until the queue drains, connectivity drops, or the manager is
+disposed.
+
+---
+
+### `CircuitBreakerInterceptor`
+
+Fails fast when an origin looks down, instead of letting every request wait
+out its full timeout. Circuits are tracked per host: after
+`failureThreshold` consecutive transport failures (network/timeout errors
+and HTTP 5xx) the circuit opens and requests to that host are rejected
+immediately with a `NetworkError` for `cooldown`; then a single half-open
+probe decides whether to close it again.
+
+```dart
+ApiClient(ApiClientConfig(
+  baseUrl: 'https://api.example.com',
+  interceptors: [
+    CircuitBreakerInterceptor(
+      failureThreshold: 5,
+      cooldown: const Duration(seconds: 30),
+      onStateChange: (host, state) => log('circuit $host → $state'),
+    ),
+    RetryInterceptor(policy: RetryPolicy()), // after the breaker: retries of
+  ],                                         // a tripped host are cut short
+));
+```
+
+**Never counted as failures:** 4xx responses (the origin is reachable),
+cancellations, and the breaker's own fail-fast rejections. A single
+successful response closes the circuit and resets the count. Inspect a
+circuit with `stateFor(host)`.
 
 ---
 
@@ -1422,12 +1490,18 @@ class MyAdapter implements HttpAdapter {
 | `CachePolicy` | Cache mode + TTL + ETag settings |
 | `CacheStore` | Abstract cache backend interface |
 | `MemoryCacheStore` | Bounded LRU in-memory cache |
+| `HiveCacheStore` | Persistent Hive-backed cache (offline reads survive restarts) |
 | `CacheEntry` | Cached response (key, body, headers, ETag, timestamp) |
+| `CircuitBreakerInterceptor` | Per-host fail-fast when an origin is down |
+| `CircuitState` | Circuit lifecycle: `closed` / `open` / `halfOpen` |
 | `DedupInterceptor` | In-flight request deduplication |
 | `OfflineQueueInterceptor` | Captures offline writes for later replay |
 | `OfflineQueueStore` | Abstract queue backend interface |
+| `PeekableOfflineQueueStore` | Non-destructive-read capability for crash-safe replay |
 | `InMemoryOfflineQueueStore` | Volatile in-memory queue |
 | `HiveOfflineQueueStore` | Persistent Hive-backed queue store |
+| `OfflineQueueReplayer` | Delivers queued writes through a live client |
+| `OfflineSyncManager` | Auto-replays the queue from a connectivity stream |
 | `QueuedRequest` | Serialisable pending request (with `toJson()` / `fromJson()`) |
 | `CurlLogger` | Logs requests as `curl` commands |
 | `PrettyLogger` | Structured colour request/response logger |

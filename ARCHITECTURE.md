@@ -210,6 +210,20 @@ delay = min(baseDelay * 2^attempt + jitter, maxDelay)
 
 **Design Decision**: Read-only methods (GET, HEAD) are never enqueued because retrying them later may return different data. A store failure while enqueueing never masks the original network error. Overlapping `replay()` calls coalesce into a single pass so a chatty connectivity listener cannot double-send the queue.
 
+### CircuitBreakerInterceptor
+
+**Location**: `lib/src/interceptors/circuit_breaker/circuit_breaker_interceptor.dart`
+
+**Flow**: per-host circuits count consecutive transport failures (network/timeout errors and HTTP 5xx). At `failureThreshold` the circuit opens and requests to that host reject immediately with a `NetworkError` until `cooldown` elapses; then one half-open probe decides between closing (success) and reopening (failure).
+
+**Design Decision**: rejections reuse `NetworkError` rather than adding a new `ApiException` subtype — `ApiException` is sealed, so a new subtype would break user code that switches exhaustively. The breaker tags its own synthetic rejections by identity so the chain's error pass never counts a fail-fast as another origin failure. 4xx responses and cancellations never trip the circuit (they prove reachability or say nothing about it).
+
+### Offline sync (OfflineSyncManager)
+
+**Location**: `lib/src/interceptors/offline/offline_sync_manager.dart`
+
+Bridges a user-supplied `Stream<bool>` connectivity signal to `OfflineQueueReplayer`: replay on every online event, re-schedule after `retryDelay` while passes leave transient failures re-enqueued, cancel on offline, coalesce overlapping triggers via the replayer's single-pass guarantee. Dependency-light by design — the package does not bundle a connectivity plugin.
+
 ### Logging Interceptors
 
 **CurlLogger** (`lib/src/interceptors/logging/curl_logger.dart`):
