@@ -64,6 +64,16 @@
 /// );
 /// ```
 ///
+/// ## Version 1.5.0
+/// - [HiveCacheStore]: persistent response cache — offline reads survive
+///   app restarts
+/// - [OfflineSyncManager]: auto-replays the offline queue from any
+///   `Stream<bool>` connectivity signal, with retry scheduling
+/// - [CircuitBreakerInterceptor]: per-host fail-fast when an origin is down
+///   (closed → open → half-open probe)
+/// - `ApiResult` helpers: `flatMap`, `mapError`, `getOrElse`,
+///   `onSuccess`/`onFailure`
+///
 /// ## Version 1.4.0
 /// - Smooth offline: queued writes persist their query parameters and
 ///   base-URL override and replay against the exact original URL
@@ -128,13 +138,16 @@ export 'src/interceptors/interceptor_chain.dart';
 export 'src/interceptors/cache/cache_interceptor.dart';
 export 'src/interceptors/cache/cache_policy.dart';
 export 'src/interceptors/cache/cache_store.dart';
+export 'src/interceptors/cache/hive_cache_store.dart';
 export 'src/interceptors/cache/memory_cache_store.dart';
+export 'src/interceptors/circuit_breaker/circuit_breaker_interceptor.dart';
 export 'src/interceptors/dedup/dedup_interceptor.dart';
 export 'src/interceptors/logging/curl_logger.dart';
 export 'src/interceptors/logging/pretty_logger.dart';
 export 'src/interceptors/offline/offline_queue.dart';
 export 'src/interceptors/offline/offline_queue_interceptor.dart';
 export 'src/interceptors/offline/offline_queue_replayer.dart';
+export 'src/interceptors/offline/offline_sync_manager.dart';
 export 'src/interceptors/retry/retry_interceptor.dart';
 export 'src/interceptors/retry/retry_policy.dart';
 

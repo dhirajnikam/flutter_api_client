@@ -1,3 +1,41 @@
+## 1.5.0
+
+**Release Date**: 2026-08-01  
+**Type**: Minor Release (additive)  
+**Breaking Changes**: None (fully backward compatible with 1.4.0)
+
+This release fills in the remaining blanks around offline and resilience:
+persistent caching, hands-free offline sync, a circuit breaker, and
+functional `ApiResult` helpers. Everything is new API surface — nothing
+existing changed.
+
+### Added
+
+* **`HiveCacheStore`** — a persistent, Hive-backed `CacheStore` (mirroring
+  `HiveOfflineQueueStore` on the write side). Cached responses now survive
+  app restarts, so `CachePolicy.cacheFirst`/`cacheOnly` deliver real offline
+  reads. Optional `maxEntries` cap evicts oldest-`savedAt` first; corrupt
+  records read as misses and are deleted rather than thrown.
+* **`OfflineSyncManager`** — closes the loop on the offline pipeline. Feed
+  it any `Stream<bool>` connectivity signal (e.g. mapped from
+  `connectivity_plus`) and it replays the offline queue automatically when
+  the device comes online, re-schedules a pass (after `retryDelay`) while
+  transient failures remain, cancels the schedule when connectivity drops,
+  and reports every pass through `onReport`. `replayOnStart` drains writes
+  queued in a previous session at app launch; `syncNow()` runs a pass on
+  demand.
+* **`CircuitBreakerInterceptor`** — fails fast when an origin looks down
+  instead of letting every request wait out its timeout. Per-host circuits:
+  `closed` → `open` after `failureThreshold` consecutive transport failures
+  (network/timeout errors and HTTP 5xx) → one `halfOpen` probe after
+  `cooldown` → closed on success. Rejections surface as `NetworkError` (no
+  new exception type, so exhaustive `ApiException` switches keep compiling);
+  4xx responses and cancellations never trip the circuit. `onStateChange`
+  exposes transitions; `stateFor(host)` reads current state.
+* **`ApiResult` functional helpers** — `flatMap` (chain result-producing
+  steps), `mapError` (translate errors at a boundary), `getOrElse`
+  (fallback value), and chainable `onSuccess`/`onFailure` taps.
+
 ## 1.4.0
 
 **Release Date**: 2026-07-30  

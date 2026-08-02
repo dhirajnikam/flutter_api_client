@@ -94,6 +94,51 @@ sealed class ApiResult<T> {
             statusCode: statusCode,
           ),
       };
+
+  /// Chain a result-producing step: on [Success] returns `transform(data)`,
+  /// on [Failure] passes the failure through unchanged. Use to sequence
+  /// validation or a dependent call without nesting `when`s.
+  ApiResult<R> flatMap<R>(ApiResult<R> Function(T data) transform) =>
+      switch (this) {
+        Success<T>(:final data) => transform(data),
+        Failure<T>(:final error, :final statusCode) => Failure<R>(
+            error,
+            statusCode: statusCode,
+          ),
+      };
+
+  /// Map the failure's error, passing success through unchanged. Useful to
+  /// enrich or translate errors at an API boundary.
+  ApiResult<T> mapError(ApiException Function(ApiException error) transform) =>
+      switch (this) {
+        Success<T>() => this,
+        Failure<T>(:final error, :final statusCode) => Failure<T>(
+            transform(error),
+            statusCode: statusCode,
+          ),
+      };
+
+  /// The success value, or `orElse(error)` when this is a [Failure].
+  T getOrElse(T Function(ApiException error) orElse) => switch (this) {
+        Success<T>(:final data) => data,
+        Failure<T>(:final error) => orElse(error),
+      };
+
+  /// Runs [action] with the success value, then returns this result unchanged
+  /// so calls can be chained. No-op on [Failure].
+  ApiResult<T> onSuccess(void Function(T data) action) {
+    final self = this;
+    if (self is Success<T>) action(self.data);
+    return this;
+  }
+
+  /// Runs [action] with the error, then returns this result unchanged so
+  /// calls can be chained. No-op on [Success].
+  ApiResult<T> onFailure(void Function(ApiException error) action) {
+    final self = this;
+    if (self is Failure<T>) action(self.error);
+    return this;
+  }
 }
 
 /// Successful API result carrying the decoded body.
