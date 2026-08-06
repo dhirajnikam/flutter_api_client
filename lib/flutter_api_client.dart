@@ -64,6 +64,16 @@
 /// );
 /// ```
 ///
+/// ## Version 1.6.0
+/// - Optimistic offline mutations via [OfflineMutations]: `apply`/`rollback`
+///   callbacks update local data immediately and queue the API call for replay
+///   when offline (model-agnostic — works with any store)
+/// - Replay priority ([QueuedRequest.priority], [OfflineQueueInterceptor.priorityOf])
+///   and full custom ordering ([OfflineQueueReplayer.compare])
+/// - Replay outcome hook ([OfflineQueueReplayer.onOutcome] + [ReplayOutcome])
+/// - [OfflineAutoReplay]: replays the queue on reconnect from any
+///   `Stream<bool>` connectivity source (no dependency bundled)
+///
 /// ## Version 1.5.0
 /// - [HiveCacheStore]: persistent response cache — offline reads survive
 ///   app restarts
@@ -144,6 +154,8 @@ export 'src/interceptors/circuit_breaker/circuit_breaker_interceptor.dart';
 export 'src/interceptors/dedup/dedup_interceptor.dart';
 export 'src/interceptors/logging/curl_logger.dart';
 export 'src/interceptors/logging/pretty_logger.dart';
+export 'src/interceptors/offline/offline_auto_replay.dart';
+export 'src/interceptors/offline/offline_mutations.dart';
 export 'src/interceptors/offline/offline_queue.dart';
 export 'src/interceptors/offline/offline_queue_interceptor.dart';
 export 'src/interceptors/offline/offline_queue_replayer.dart';

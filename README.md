@@ -126,6 +126,7 @@ flutter test --concurrency=8
 | ETag / `If-None-Match` revalidation | plugin | no | ✅ built-in |
 | Request dedup / in-flight coalescing | DIY | no | ✅ built-in |
 | Offline write queue (pluggable storage) | DIY | no | ✅ built-in |
+| Optimistic offline mutations + priority + auto-replay | DIY | no | ✅ built-in |
 | cURL + pretty logger with redaction | plugin | no | ✅ built-in |
 | Pluggable transport (`HttpAdapter`) | yes | no | ✅ yes |
 | Built-in `MockAdapter` for tests | plugin | no | ✅ built-in |
@@ -170,6 +171,9 @@ flutter test --concurrency=8
 - **ETag validation**: Automatic `If-None-Match` for bandwidth optimization
 - **Request deduplication**: Collapse identical in-flight requests
 - **Offline queue**: Persist failed writes for replay when online
+- **Optimistic offline mutations**: Update local data now, sync later, with
+  priority, custom ordering, and auto-replay on reconnect (`OfflineMutations`,
+  `OfflineAutoReplay`)
 - **Cancel tokens**: Cancel multiple related requests simultaneously
 - **Payload size guards**: Optional request / response byte limits in the default adapter
 
@@ -899,7 +903,7 @@ final report = await OfflineQueueReplayer(
 print(report); // succeeded / reEnqueued / deadLettered counts
 ```
 
-The replayer processes the queue in `createdAt` order and re-issues each
+The replayer processes the queue in priority-then-`createdAt` order and re-issues each
 request through `client`, so a fresh `Authorization` token is attached
 automatically. A request that fails transiently (network/timeout) is
 re-enqueued with an incremented attempt count; once it reaches `maxAttempts`
@@ -935,6 +939,80 @@ still what the caller sees — a queueing failure never masks it.
 `HiveOfflineQueueStore` is the built-in persistent option. It stores each
 queued request as a JSON string in a user-supplied `Hive` box. Queue bodies
 must remain JSON-serialisable to persist cleanly.
+
+#### Replay priority & custom ordering
+
+Each `QueuedRequest` carries a `priority` (default `0`, higher replays first;
+ties break on `createdAt` then `id`). Set it per auto-queued request via the
+interceptor's `priorityOf` callback:
+
+```dart
+OfflineQueueInterceptor(
+  store: HiveOfflineQueueStore(box),
+  // DELETEs first, then everything else:
+  priorityOf: (req) => req.method == 'DELETE' ? 10 : 0,
+)
+```
+
+For full control, pass a comparator to the replayer — it overrides replay order
+entirely:
+
+```dart
+OfflineQueueReplayer(
+  store: store,
+  client: client,
+  compare: (a, b) => a.endpoint.compareTo(b.endpoint), // order by endpoint
+).replay();
+```
+
+### `OfflineMutations` — optimistic local updates
+
+`OfflineMutations` updates your local data *now* and syncs the API call later.
+Call `mutate()` with `apply` / `rollback` closures instead of `client.post`:
+
+```dart
+final mutations = OfflineMutations(client: client, store: store);
+
+final result = await mutations.mutate<Todo>(
+  'POST', 'todos', newTodo.toJson(),
+  priority: 5,
+  apply:    () async => localDb.put(newTodo),        // optimistic, runs first
+  rollback: () async => localDb.delete(newTodo.id),  // undo if it fails for good
+);
+```
+
+- **Online** → sent normally, `apply` kept.
+- **Offline** (`NetworkError`/`TimeoutError`) → queued for replay, `apply` kept,
+  result is a `Failure` carrying the network error.
+- **Server rejects it** (non-transient) → `rollback` runs immediately.
+- **Dead-lettered during replay** → `rollback` runs then.
+
+The package never touches your data — it only calls your closures, so it works
+with any store (Hive, Isar, Drift, Bloc, Riverpod, a plain map).
+
+> **Restart caveat:** `rollback` closures live in memory. A write queued in one
+> run and dead-lettered after a restart has no rollback to call. If you need
+> restart-durable rollback, have `apply` write a "pending" marker your startup
+> reconciles (Dart can't serialize closures).
+
+### `OfflineAutoReplay` — replay on reconnect
+
+Feed it a `Stream<bool>` (`true` = online) from any connectivity source and it
+replays the queue automatically, coalescing overlapping triggers:
+
+```dart
+final auto = OfflineAutoReplay(
+  replayer: mutations.buildReplayer(), // pre-wired to commit/rollback
+  onReplayed: (report) => debugPrint('$report'),
+);
+auto.bind(
+  Connectivity().onConnectivityChanged.map((r) => r != ConnectivityResult.none),
+);
+// auto.trigger();       // manual "retry now"
+// await auto.dispose(); // on logout / teardown
+```
+
+No connectivity package is bundled — you supply the stream, so any source works.
 
 **Hands-free syncing** — `OfflineSyncManager` drives the replayer from a
 connectivity signal so you don't wire the listener plumbing yourself:

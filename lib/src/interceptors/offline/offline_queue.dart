@@ -9,7 +9,7 @@ abstract class OfflineQueueStore {
   Future<void> enqueue(QueuedRequest request);
 
   /// Removes and returns all pending requests in replay order
-  /// (oldest [QueuedRequest.createdAt] first).
+  /// (see [compareQueuedRequests]: priority first, then oldest first).
   Future<List<QueuedRequest>> drain();
 
   /// Removes the request with the given [id], if present.
@@ -28,9 +28,20 @@ abstract class OfflineQueueStore {
 /// that only implement [OfflineQueueStore] keep working unchanged via the
 /// legacy drain-based replay path.
 abstract class PeekableOfflineQueueStore implements OfflineQueueStore {
-  /// Returns all pending requests in replay order (oldest
-  /// [QueuedRequest.createdAt] first) WITHOUT removing them.
+  /// Returns all pending requests in replay order WITHOUT removing them.
   Future<List<QueuedRequest>> peekAll();
+}
+
+/// Default replay ordering: higher [QueuedRequest.priority] first, then oldest
+/// [QueuedRequest.createdAt] first, with [QueuedRequest.id] as a stable final
+/// tiebreak. Stores sort by this on [OfflineQueueStore.drain]; the replayer can
+/// override it with a custom comparator.
+int compareQueuedRequests(QueuedRequest a, QueuedRequest b) {
+  final byPriority = b.priority.compareTo(a.priority); // higher first
+  if (byPriority != 0) return byPriority;
+  final byCreatedAt = a.createdAt.compareTo(b.createdAt); // oldest first
+  if (byCreatedAt != 0) return byCreatedAt;
+  return a.id.compareTo(b.id);
 }
 
 /// A request captured while offline, pending replay.
@@ -46,6 +57,7 @@ class QueuedRequest {
     this.attempts = 0,
     this.queryParameters,
     this.baseUrlOverride,
+    this.priority = 0,
   });
 
   /// Unique id within the queue; also the storage key for keyed stores.
@@ -79,6 +91,11 @@ class QueuedRequest {
   /// targets the same host the original request did.
   final String? baseUrlOverride;
 
+  /// Replay priority; higher values replay first (default `0`). Ties break on
+  /// [createdAt] then [id]. Override ordering wholesale with a comparator on the
+  /// replayer if priority alone is not enough.
+  final int priority;
+
   /// Returns a copy with [attempts] incremented by one.
   QueuedRequest withAttempt() => QueuedRequest(
         id: id,
@@ -90,6 +107,7 @@ class QueuedRequest {
         attempts: attempts + 1,
         queryParameters: queryParameters,
         baseUrlOverride: baseUrlOverride,
+        priority: priority,
       );
 
   /// JSON representation for persistent stores.
@@ -103,6 +121,7 @@ class QueuedRequest {
         'attempts': attempts,
         if (queryParameters != null) 'queryParameters': queryParameters,
         if (baseUrlOverride != null) 'baseUrlOverride': baseUrlOverride,
+        'priority': priority,
       };
 
   /// Strict parse; throws [FormatException] on a malformed record.
@@ -161,6 +180,11 @@ class QueuedRequest {
 
     final rawBaseUrl = json['baseUrlOverride'];
 
+    final priorityRaw = json['priority'];
+    final priority = priorityRaw is int
+        ? priorityRaw
+        : (priorityRaw is num ? priorityRaw.toInt() : 0);
+
     return QueuedRequest(
       id: id,
       method: method,
@@ -171,16 +195,9 @@ class QueuedRequest {
       attempts: attempts < 0 ? 0 : attempts,
       queryParameters: queryParameters,
       baseUrlOverride: rawBaseUrl is String ? rawBaseUrl : null,
+      priority: priority,
     );
   }
-}
-
-/// Replay-order comparator shared by the built-in stores: oldest createdAt
-/// first, tie-broken by id so ordering is deterministic.
-int _replayOrder(QueuedRequest a, QueuedRequest b) {
-  final createdAt = a.createdAt.compareTo(b.createdAt);
-  if (createdAt != 0) return createdAt;
-  return a.id.compareTo(b.id);
 }
 
 /// Default in-memory queue store (volatile). Replace with a persistent
@@ -195,17 +212,17 @@ class InMemoryOfflineQueueStore implements PeekableOfflineQueueStore {
 
   @override
   Future<List<QueuedRequest>> drain() async {
-    // Honour the OfflineQueueStore.drain contract (oldest createdAt first),
-    // matching HiveOfflineQueueStore. Insertion order usually agrees, but a
-    // re-enqueued request appends out of createdAt order.
-    final out = List<QueuedRequest>.from(_items)..sort(_replayOrder);
+    // Honour the OfflineQueueStore.drain contract (priority first, then oldest
+    // createdAt), matching HiveOfflineQueueStore. Insertion order usually agrees
+    // on createdAt, but priority and re-enqueues require an explicit sort.
+    final out = List<QueuedRequest>.from(_items)..sort(compareQueuedRequests);
     _items.clear();
     return out;
   }
 
   @override
   Future<List<QueuedRequest>> peekAll() async =>
-      List<QueuedRequest>.from(_items)..sort(_replayOrder);
+      List<QueuedRequest>.from(_items)..sort(compareQueuedRequests);
 
   @override
   Future<void> remove(String id) async {
@@ -246,7 +263,7 @@ class HiveOfflineQueueStore implements PeekableOfflineQueueStore {
       }
       if (parsed != null) out.add(parsed);
     }
-    return out..sort(_replayOrder);
+    return out..sort(compareQueuedRequests);
   }
 
   @override

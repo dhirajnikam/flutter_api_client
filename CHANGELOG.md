@@ -1,3 +1,50 @@
+## 1.6.0
+
+**Release Date**: 2026-08-06  
+**Type**: Minor Release (additive)  
+**Breaking Changes**: None (fully backward compatible with 1.5.0)
+
+This release adds optimistic offline mutations and full control over replay
+ordering: local data can be updated optimistically, the resulting API call is
+queued while offline, and the queue replays with customizable priority and
+ordering.
+
+### Added
+
+* **Optimistic offline mutations** — `OfflineMutations`. Call `mutate()` instead
+  of `client.post/put/patch/delete` with `apply` / `rollback` callbacks: `apply`
+  updates your local store immediately, the request is sent, and if the device
+  is offline it is queued for replay while the optimistic state is kept. If the
+  server is reached and rejects the write (non-transient), `rollback` runs at
+  once; if a queued write is later dead-lettered during replay, `rollback` runs
+  then. The package stays model-agnostic — it calls your closures, so it works
+  with Hive, Isar, Drift, Bloc, Riverpod, or a plain map.
+* **Replay priority** — `QueuedRequest.priority` (default `0`, higher replays
+  first; ties break on `createdAt` then `id`). Both queue stores replay in this
+  order. `OfflineQueueInterceptor` gains a `priorityOf` callback to set a
+  priority per auto-queued request.
+* **Custom replay ordering** — `OfflineQueueReplayer.compare`, an optional
+  `Comparator<QueuedRequest>` that overrides replay order entirely (order by
+  endpoint, method, custom metadata, anything). Falls back to priority + oldest
+  when null.
+* **Replay outcome hook** — `OfflineQueueReplayer.onOutcome` +
+  `ReplayOutcome { succeeded, reEnqueued, deadLettered }`, awaited per request
+  (this is how `OfflineMutations` commits/rolls back).
+* **Auto-replay on reconnect** — `OfflineAutoReplay`. Feed it a `Stream<bool>`
+  (true = online) from any connectivity source (`connectivity_plus`, a ping,
+  a test controller — no dependency bundled) and it replays on reconnect,
+  coalescing overlapping triggers so the queue is never drained concurrently.
+  `trigger()` is public for a manual "retry now". (For scheduled retries and
+  replay-on-start, see `OfflineSyncManager` from 1.5.0 — both are exported.)
+
+### Notes
+
+* `rollback` closures are held in memory keyed by request id. A write queued in
+  one app run, then dead-lettered after a restart, has no rollback to call — the
+  queued request is dropped but local state is not reverted. Use an `apply` that
+  writes a "pending" marker your startup reconciles if you need restart-durable
+  rollback (Dart cannot serialize closures).
+
 ## 1.5.0
 
 **Release Date**: 2026-08-01  
