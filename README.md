@@ -29,18 +29,21 @@ a Markdown API reference, and a backend implementation guide.
    - [AuthInterceptor](#authinterceptor)
    - [OfflineQueueInterceptor](#offlinequeueinterceptor)
    - [CircuitBreakerInterceptor](#circuitbreakerinterceptor)
+   - [RateLimitInterceptor](#ratelimitinterceptor)
+   - [MetricsInterceptor](#metricsinterceptor)
    - [CurlLogger](#curllogger)
    - [PrettyLogger](#prettylogger)
 10. [Cancel tokens](#cancel-tokens)
 11. [Multipart / file upload](#multipart--file-upload)
-12. [GraphQL](#graphql)
-13. [Spec-driven endpoints](#spec-driven-endpoints)
-14. [Testing with MockAdapter](#testing-with-mockadapter)
-15. [Pluggable transport](#pluggable-transport)
-16. [API reference](#api-reference)
-17. [Migration from 0.1.x](#migration-from-01x)
-18. [Test suite](#test-suite)
-19. [License](#license)
+12. [Pagination](#pagination)
+13. [GraphQL](#graphql)
+14. [Spec-driven endpoints](#spec-driven-endpoints)
+15. [Testing with MockAdapter](#testing-with-mockadapter)
+16. [Pluggable transport](#pluggable-transport)
+17. [API reference](#api-reference)
+18. [Migration from 0.1.x](#migration-from-01x)
+19. [Test suite](#test-suite)
+20. [License](#license)
 
 ---
 
@@ -176,6 +179,7 @@ flutter test --concurrency=8
   `OfflineAutoReplay`)
 - **Cancel tokens**: Cancel multiple related requests simultaneously
 - **Payload size guards**: Optional request / response byte limits in the default adapter
+- **Client-side rate limiting**: Per-host token bucket that smooths bursts and honors 429 `Retry-After`
 
 ### Developer Experience
 - **Logging interceptors**: cURL commands and pretty-printed request/response logs
@@ -183,6 +187,8 @@ flutter test --concurrency=8
 - **Type-safe errors**: Seven typed exception classes for exhaustive error handling
 - **Progress callbacks**: Track upload and download progress
 - **Timeout control**: Per-request timeout overrides
+- **Metrics hook**: One `ApiRequestMetric` per call (duration, attempts, status, cache hit) for analytics/APM
+- **Pagination helpers**: Walk cursor- or page-number APIs as a `Stream` or collect with `all()`
 
 ### Testing & Mocking
 - **MockAdapter**: Route-based mocking with request capture
@@ -1069,6 +1075,79 @@ circuit with `stateFor(host)`.
 
 ---
 
+### `RateLimitInterceptor`
+
+Keeps the client under a request budget — `maxRequests` per `per` window —
+independently per host (token bucket). Requests beyond the burst wait for a
+token in arrival order instead of failing, so bursts are smoothed rather than
+dropped. A 429 response with `Retry-After` additionally pauses the whole
+bucket for the requested duration (capped at `maxServerPause`).
+
+```dart
+ApiClient(ApiClientConfig(
+  baseUrl: 'https://api.example.com',
+  interceptors: [
+    RetryInterceptor(policy: RetryPolicy()),
+    CacheInterceptor(store: MemoryCacheStore()),
+    DedupInterceptor(),
+    // LAST, so cache hits and piggybacked duplicates don't consume tokens.
+    RateLimitInterceptor(
+      maxRequests: 10,
+      per: const Duration(seconds: 1),
+      maxWait: const Duration(seconds: 5), // fail fast past this backlog
+    ),
+  ],
+));
+```
+
+- `maxWait` bounds worst-case latency: a request that would queue longer is
+  rejected immediately with a `NetworkError` (same fail-fast convention as the
+  circuit breaker). `null` (default) queues without bound.
+- Cancelling a waiting request's `CancelToken` releases it right away with
+  `CancelError` and returns its token to the bucket.
+- `keyOf` replaces the default per-host keying (e.g. key by endpoint to give
+  a rate-limited search API its own budget).
+- Retries restart the interceptor chain, so every retry attempt passes the
+  limiter again — a retry storm cannot blow the budget.
+
+---
+
+### `MetricsInterceptor`
+
+Reports one `ApiRequestMetric` per logical request — the final outcome, with
+total duration and attempt count across retries — for wiring into logging,
+analytics, or APM backends.
+
+```dart
+ApiClient(ApiClientConfig(
+  baseUrl: 'https://api.example.com',
+  interceptors: [
+    // FIRST, so it wraps the retry loop and sees one event per call.
+    MetricsInterceptor(onMetric: (m) {
+      analytics.track('api_request', {
+        'endpoint': m.endpoint,
+        'method': m.method,
+        'ms': m.duration.inMilliseconds,
+        'status': m.statusCode,     // null on transport failure
+        'error': m.error?.runtimeType.toString(),
+        'attempts': m.attempts,     // 1 = no retries
+        'from_cache': m.fromCache,
+      });
+    }),
+    RetryInterceptor(policy: RetryPolicy()),
+    CacheInterceptor(store: MemoryCacheStore()),
+  ],
+));
+```
+
+`ApiRequestMetric` fields: `method`, `endpoint`, `startedAt`, `duration`
+(wall-clock including retry backoff), `attempts`, `fromCache`, `statusCode`,
+`error`, and the request's `tag` (from `RequestOptions.tag`) for correlating
+with call sites. Exceptions thrown by `onMetric` are swallowed —
+observability never affects request flow.
+
+---
+
 ### `CurlLogger`
 
 Logs every request as a ready-to-paste `curl` command. Sensitive headers and
@@ -1197,6 +1276,65 @@ final res = await client.post<Map<String, dynamic>>(
 | `List<http.MultipartFile>` | Multiple file parts |
 | `List<T>` | Repeated fields as `key[]` |
 | `null` | Skipped |
+
+---
+
+## Pagination
+
+`Paginator<TItem, TPage>` walks any paginated endpoint — cursor, page-number,
+or next-URL — and exposes the result as streams (`pages()`, `items()`) or one
+collected list (`all()`). It is shape-agnostic: you supply `fetchPage` (which
+sees the previous page, so it can carry a cursor forward), `itemsOf`, and
+`hasMore`.
+
+Cursor-based feed, consumed item by item:
+
+```dart
+final paginator = Paginator<Post, Feed>(
+  fetchPage: (prev) => client.get(
+    'feed',
+    options: RequestOptions(queryParameters: {
+      if (prev != null) 'cursor': prev.nextCursor,
+    }),
+    decoder: Feed.fromJson,
+  ),
+  itemsOf: (page) => page.posts,
+  hasMore: (page) => page.nextCursor != null,
+);
+
+await for (final post in paginator.items()) {
+  render(post);
+}
+```
+
+Page-number API, collected in one call:
+
+```dart
+var page = 0;
+final result = await Paginator<User, List<User>>(
+  fetchPage: (_) => client.get(
+    'users',
+    options: RequestOptions(queryParameters: {'page': ++page, 'size': 50}),
+    decoder: (j) => [for (final u in j as List) User.fromJson(u)],
+  ),
+  itemsOf: (users) => users,
+  hasMore: (users) => users.length == 50,
+).all();
+```
+
+Semantics worth knowing:
+
+- **Failures are never partial.** `all()` returns the page fetch's `Failure`
+  verbatim (items from earlier pages are discarded); `pages()`/`items()`
+  surface the `ApiException` as a stream error after delivering the pages that
+  already arrived.
+- **Caps:** `maxPages` (constructor) bounds a walk against never-ending
+  cursors; `all(maxItems: n)` truncates and stops fetching early.
+- **Default stop rule:** without `hasMore`, the walk ends at the first page
+  with no items (costing one trailing empty-page request — supply `hasMore`
+  to stop precisely).
+- Each call to `pages()`, `items()`, or `all()` starts a fresh walk; the
+  paginator holds no iteration state.
 
 ---
 
@@ -1542,6 +1680,7 @@ class MyAdapter implements HttpAdapter {
 | `UnknownError` | Catch-all |
 | `CancelToken` | Cancel one or more in-flight requests |
 | `RequestOptions` | Per-request config overrides |
+| `Paginator<TItem, TPage>` | Walks paginated endpoints as streams or one collected list |
 | `ResponseType` | `json` / `bytes` / `plainText` / `stream` |
 | `FormData` | Multipart form data builder |
 | `buildUri()` | Constructs `Uri` from base URL + endpoint + query params |
@@ -1572,6 +1711,9 @@ class MyAdapter implements HttpAdapter {
 | `CacheEntry` | Cached response (key, body, headers, ETag, timestamp) |
 | `CircuitBreakerInterceptor` | Per-host fail-fast when an origin is down |
 | `CircuitState` | Circuit lifecycle: `closed` / `open` / `halfOpen` |
+| `RateLimitInterceptor` | Per-host token-bucket rate limiting, 429 `Retry-After` aware |
+| `MetricsInterceptor` | One metric per request for analytics/APM |
+| `ApiRequestMetric` | Final outcome: duration, attempts, status, cache hit, tag |
 | `DedupInterceptor` | In-flight request deduplication |
 | `OfflineQueueInterceptor` | Captures offline writes for later replay |
 | `OfflineQueueStore` | Abstract queue backend interface |
