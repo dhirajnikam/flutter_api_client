@@ -22,3 +22,51 @@ String? headerValue(Map<String, String> headers, String name) {
   }
   return null;
 }
+
+/// Parses a `Retry-After` header per RFC 7231: either delta-seconds or an
+/// IMF-fixdate. Returns null for a missing, negative, or unparseable value so
+/// callers fall back to their own delay policy. Shared by the retry policy
+/// and the rate limiter so both interpret the header identically.
+Duration? parseRetryAfter(Map<String, String> headers) {
+  final ra = headerValue(headers, 'retry-after')?.trim();
+  if (ra == null || ra.isEmpty) return null;
+  final secs = int.tryParse(ra);
+  if (secs != null) return secs < 0 ? null : Duration(seconds: secs);
+  final date = _tryParseHttpDate(ra);
+  if (date == null) return null;
+  final delta = date.difference(DateTime.now());
+  return delta.isNegative ? Duration.zero : delta;
+}
+
+/// Minimal IMF-fixdate parser (e.g. `Sun, 06 Nov 1994 08:49:37 GMT`).
+/// Avoids `dart:io`'s `HttpDate` so the package stays web-compatible.
+DateTime? _tryParseHttpDate(String value) {
+  const months = {
+    'Jan': 1,
+    'Feb': 2,
+    'Mar': 3,
+    'Apr': 4,
+    'May': 5,
+    'Jun': 6,
+    'Jul': 7,
+    'Aug': 8,
+    'Sep': 9,
+    'Oct': 10,
+    'Nov': 11,
+    'Dec': 12,
+  };
+  final m = RegExp(
+    r'^[A-Za-z]+, (\d{2}) ([A-Za-z]{3}) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$',
+  ).firstMatch(value);
+  if (m == null) return null;
+  final month = months[m.group(2)];
+  if (month == null) return null;
+  return DateTime.utc(
+    int.parse(m.group(3)!),
+    month,
+    int.parse(m.group(1)!),
+    int.parse(m.group(4)!),
+    int.parse(m.group(5)!),
+    int.parse(m.group(6)!),
+  );
+}

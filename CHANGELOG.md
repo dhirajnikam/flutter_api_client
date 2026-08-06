@@ -1,3 +1,47 @@
+## 1.7.0
+
+**Release Date**: 2026-08-06  
+**Type**: Minor Release (additive)  
+**Breaking Changes**: None (fully backward compatible with 1.6.0)
+
+This release rounds out throughput control and observability: client-side
+rate limiting, a per-request metrics hook for analytics/APM, and pagination
+helpers that turn any paginated endpoint into a stream.
+
+### Added
+
+* **Client-side rate limiting** — `RateLimitInterceptor`. A token bucket per
+  host (or per custom `keyOf` key) allowing `maxRequests` per `per` window.
+  Requests beyond the burst wait for a token in strict arrival order instead
+  of failing; `maxWait` bounds worst-case latency by rejecting immediately
+  (with a `NetworkError`, the circuit breaker's fail-fast convention) when the
+  queue is too long. Cancelling a waiting request's `CancelToken` releases it
+  at once and returns its token. When `respectRetryAfter` is on (default), a
+  429 response's `Retry-After` pauses the whole bucket, capped at
+  `maxServerPause` so a hostile header cannot wedge the client. Place it last
+  in the interceptor list so cache hits and deduped requests don't consume
+  tokens.
+* **Request metrics** — `MetricsInterceptor` + `ApiRequestMetric`. One event
+  per logical request with its final outcome: method, endpoint, wall-clock
+  `duration` spanning every retry, `attempts`, `statusCode` or typed `error`,
+  a `fromCache` flag, and the request's `RequestOptions.tag` for call-site
+  correlation. Place it first in the interceptor list so it wraps the retry
+  loop. Listener exceptions are swallowed — observability never affects
+  request flow.
+* **Pagination helpers** — `Paginator<TItem, TPage>`. Shape-agnostic walking
+  of cursor, page-number, or next-URL pagination: you supply `fetchPage`
+  (sees the previous page), `itemsOf`, and `hasMore`. Consume via `pages()` /
+  `items()` streams or collect with `all()`. Failures are never partial:
+  `all()` returns the fetch's `Failure` verbatim, streams surface the
+  `ApiException` as a stream error. `maxPages` and `all(maxItems:)` bound the
+  walk.
+
+### Changed
+
+* `Retry-After` parsing (delta-seconds and IMF-fixdate forms) moved to a
+  shared internal helper so `RetryPolicy` and `RateLimitInterceptor`
+  interpret the header identically. No behavior change.
+
 ## 1.6.0
 
 **Release Date**: 2026-08-06  
