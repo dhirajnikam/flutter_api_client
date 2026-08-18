@@ -58,6 +58,11 @@ class OfflineMutations {
   ///
   /// [method] is one of `POST`/`PUT`/`PATCH`/`DELETE` (case-insensitive).
   /// [priority] sets the replay [QueuedRequest.priority] (higher replays first).
+  /// [replaySafety] sets the delivery guarantee: the default
+  /// [ReplaySafety.atLeastOnce] may resend a request whose send was interrupted,
+  /// so pass [ReplaySafety.atMostOnce] for a non-idempotent create where a
+  /// duplicate record is worse than a dropped one. An `atMostOnce` mutation that
+  /// cannot be delivered is dead-lettered, which runs [rollback].
   /// [rollback] is run if the write is rejected by the server now, or if it is
   /// dead-lettered during replay later.
   ///
@@ -68,6 +73,7 @@ class OfflineMutations {
     String endpoint,
     Object? body, {
     int priority = 0,
+    ReplaySafety replaySafety = ReplaySafety.atLeastOnce,
     Future<void> Function()? apply,
     Future<void> Function()? rollback,
     RequestOptions? options,
@@ -99,6 +105,7 @@ class OfflineMutations {
         body: body,
         createdAt: now,
         priority: priority,
+        replaySafety: replaySafety,
       ),
     );
     return result;

@@ -1,4 +1,5 @@
 import '../../core/api_exception.dart';
+import '../internal_headers.dart';
 import '../interceptor.dart';
 import '../request_identity.dart';
 import 'offline_queue.dart';
@@ -12,6 +13,7 @@ class OfflineQueueInterceptor extends Interceptor {
     this.isOnline,
     this.onQueued,
     this.priorityOf,
+    this.replaySafetyOf,
   });
 
   /// Backend the failed mutations are queued into.
@@ -38,6 +40,14 @@ class OfflineQueueInterceptor extends Interceptor {
   /// requests to a critical endpoint.
   final int Function(InterceptedRequest req)? priorityOf;
 
+  /// Optional per-request delivery guarantee. Returns the
+  /// [QueuedRequest.replaySafety] to store for [req]. Defaults to
+  /// [ReplaySafety.atLeastOnce] for every request when `null`, preserving the
+  /// existing behaviour. Return [ReplaySafety.atMostOnce] for non-idempotent
+  /// endpoints — a plain create POST — where an interrupted replay pass
+  /// duplicating the write is worse than dropping it.
+  final ReplaySafety Function(InterceptedRequest req)? replaySafetyOf;
+
   /// Monotonic per-instance sequence appended to each id. Two mutations to the
   /// same endpoint inside one microsecond (or whose `endpoint.hashCode`
   /// collides) would otherwise mint identical ids, and a keyed persistent
@@ -53,6 +63,14 @@ class OfflineQueueInterceptor extends Interceptor {
   ) async {
     if (!methods.contains(req.method.toUpperCase())) return RejectResult(error);
     if (error is! NetworkError && error is! TimeoutError) {
+      return RejectResult(error);
+    }
+    // A failed replay must not be re-queued here: OfflineQueueReplayer already
+    // owns re-enqueueing (with an incremented attempt count). Queueing it again
+    // would duplicate the record on every pass — the queue doubles while the
+    // device stays offline — and the copies would carry a reset attempt count,
+    // so maxAttempts could never dead-letter them.
+    if (headerValue(req.headers, offlineReplayHeader) != null) {
       return RejectResult(error);
     }
     // Multipart payloads (streams/files) cannot be serialized into the queue
@@ -73,6 +91,7 @@ class OfflineQueueInterceptor extends Interceptor {
       queryParameters: req.options.queryParameters,
       baseUrlOverride: req.options.baseUrlOverride,
       priority: priorityOf?.call(req) ?? 0,
+      replaySafety: replaySafetyOf?.call(req) ?? ReplaySafety.atLeastOnce,
     );
     // Never let a queueing failure mask the network error the caller needs to
     // see: if the store throws (e.g. a persistent store cannot JSON-encode

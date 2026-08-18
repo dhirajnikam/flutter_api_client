@@ -8,7 +8,7 @@ a Markdown API reference, and a backend implementation guide.
 
 [![pub package](https://img.shields.io/pub/v/flutter_api_client.svg)](https://pub.dev/packages/flutter_api_client)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-405%20passing-brightgreen)](#test-suite)
+[![Tests](https://img.shields.io/badge/tests-521%20passing-brightgreen)](#test-suite)
 
 ---
 
@@ -50,7 +50,7 @@ a Markdown API reference, and a backend implementation guide.
 
 ```yaml
 dependencies:
-  flutter_api_client: ^1.5.0
+  flutter_api_client: ^1.7.0
 
 dev_dependencies:
   build_runner: ^2.15.0
@@ -127,6 +127,8 @@ flutter test --concurrency=8
 | Request dedup / in-flight coalescing | DIY | no | ✅ built-in |
 | Offline write queue (pluggable storage) | DIY | no | ✅ built-in |
 | Optimistic offline mutations + priority + auto-replay | DIY | no | ✅ built-in |
+| Per-request at-least-once / at-most-once replay | DIY | no | ✅ built-in |
+| Selective cache invalidation (evict one endpoint) | plugin | no | ✅ built-in |
 | cURL + pretty logger with redaction | plugin | no | ✅ built-in |
 | Pluggable transport (`HttpAdapter`) | yes | no | ✅ yes |
 | Built-in `MockAdapter` for tests | plugin | no | ✅ built-in |
@@ -170,10 +172,13 @@ flutter test --concurrency=8
 - **HTTP caching**: Four cache modes (`networkFirst`, `cacheFirst`, `staleWhileRevalidate`, `cacheOnly`)
 - **ETag validation**: Automatic `If-None-Match` for bandwidth optimization
 - **Request deduplication**: Collapse identical in-flight requests
-- **Offline queue**: Persist failed writes for replay when online
+- **Offline queue**: Persist failed writes for replay when online, with
+  per-request at-least-once / at-most-once delivery (`ReplaySafety`)
 - **Optimistic offline mutations**: Update local data now, sync later, with
   priority, custom ordering, and auto-replay on reconnect (`OfflineMutations`,
   `OfflineAutoReplay`)
+- **Selective cache invalidation**: Drop one stale endpoint without clearing
+  the store (`evictEndpoint` / `evictWhere`)
 - **Cancel tokens**: Cancel multiple related requests simultaneously
 - **Payload size guards**: Optional request / response byte limits in the default adapter
 
@@ -187,7 +192,7 @@ flutter test --concurrency=8
 ### Testing & Mocking
 - **MockAdapter**: Route-based mocking with request capture
 - **SpecMockAdapter**: Schema-validating mock from API spec
-- **Built-in test suite**: 405+ passing tests covering all features
+- **Built-in test suite**: 521 passing tests covering all features
 - **No external mock libs**: Everything needed for testing included
 
 ### Spec-Driven Development (Unique Feature)
@@ -821,6 +826,38 @@ after the app is relaunched offline. Corrupt or partially-written records
 read as cache misses and are deleted, never thrown. For other backends
 implement the four-method `CacheStore` interface.
 
+**Invalidating specific entries:** when a write changes what a list endpoint
+returns, drop just those entries instead of clearing the whole store:
+
+```dart
+final cache = CacheInterceptor(store: HiveCacheStore(box));
+
+await client.post('todos', newTodo);
+await cache.evictEndpoint('/todos'); // the list is stale now — refetch next read
+
+// Or match the key text yourself for anything more specific:
+await cache.evictWhere((key) => key.contains('/todos') && key.contains('done=1'));
+```
+
+Both return the number of entries removed. Cache keys are request-identity
+strings (`METHOD url` plus the sorted request headers, including
+`Authorization`), so they cannot practically be reconstructed by hand —
+matching on the key text is the intended way to select entries.
+`evictEndpoint` matches only the `METHOD url` line, so a header value can
+never trigger an eviction.
+
+Selective eviction needs to enumerate the store, so it requires an
+`EnumerableCacheStore` — both built-in stores are. A custom store that
+implements only `CacheStore` keeps working unchanged; eviction is simply a
+no-op against it (returns `0`). Add a `keys()` method by implementing
+`EnumerableCacheStore` to opt in.
+
+**Fallback-only caching:** freshness is `now - savedAt <= ttl`, so
+`CachePolicy.staleWhileRevalidate(Duration.zero)` marks every entry stale the
+instant it is written. The cache is then never served on the request path and
+answers only when the network is unreachable — always-live reads that degrade
+to the last-known-good body offline.
+
 ---
 
 ### `DedupInterceptor`
@@ -914,8 +951,10 @@ rejects (a non network/timeout error) is dropped, and the optional
 Replay is crash-safe with the built-in stores: they implement
 `PeekableOfflineQueueStore`, so requests stay persisted until each one is
 individually settled — a crash mid-replay cannot lose the not-yet-sent tail.
-(Delivery is at-least-once: a crash between a send and its removal replays
-that one request again on the next pass.) Custom stores that only implement
+(Delivery is at-least-once by default: a crash between a send and its removal
+replays that one request again on the next pass — see
+[Replay safety](#replay-safety--at-least-once-vs-at-most-once) to opt out
+per request.) Custom stores that only implement
 `OfflineQueueStore` keep the original drain-based behaviour; implement
 `peekAll()` to opt into crash-safe replay. Overlapping `replay()` calls are
 coalesced into a single pass, so wiring it to a chatty connectivity listener
@@ -924,6 +963,13 @@ cannot double-send the queue.
 Queued requests retain ordinary request headers, but the interceptor drops the
 `Authorization` header before persisting so replay uses the current token
 instead of a stale one.
+
+Pass the *same* client the interceptor is attached to — the replay needs its
+auth, base URL, and interceptor chain. A replay that fails while the device is
+still offline is not re-queued by that interceptor: the replayer marks its own
+sends internally and owns re-enqueueing (with the incremented attempt count),
+so the queue holds exactly one record per pending write no matter how many
+passes run.
 
 **Never enqueued:**
 - GET / HEAD (idempotent reads)
@@ -964,6 +1010,42 @@ OfflineQueueReplayer(
   compare: (a, b) => a.endpoint.compareTo(b.endpoint), // order by endpoint
 ).replay();
 ```
+
+#### Replay safety — at-least-once vs at-most-once
+
+Crash-safe replay keeps a request persisted until its send settles, so an
+interruption between the send and the removal resends it. That is correct for
+an idempotent endpoint (a PUT, a DELETE, anything keyed by a client-supplied
+id) — but wrong for a plain create POST, where the resend produces a duplicate
+record.
+
+Set the guarantee per request with `replaySafetyOf`, mirroring `priorityOf`:
+
+```dart
+OfflineQueueInterceptor(
+  store: HiveOfflineQueueStore(box),
+  // A create POST must never be duplicated; everything else may be resent.
+  replaySafetyOf: (req) => req.endpoint == '/orders'
+      ? ReplaySafety.atMostOnce
+      : ReplaySafety.atLeastOnce,
+)
+```
+
+| Mode | Behaviour | Use for |
+|------|-----------|---------|
+| `atLeastOnce` (default) | Stays persisted until the send settles; an interruption resends it | Idempotent writes — PUT, DELETE, client-supplied ids |
+| `atMostOnce` | Removed *before* the send; an interruption drops it | Non-idempotent writes — a plain create POST |
+
+An `atMostOnce` request that fails transiently is **dead-lettered rather than
+retried**: a network failure mid-send is ambiguous — the write may already have
+reached the server — so retrying risks the duplicate this mode exists to
+prevent. The write is not lost silently; it is reported through `onDeadLetter`
+so you can surface it or re-submit deliberately.
+
+The default is `atLeastOnce`, so existing behaviour is unchanged and records
+queued by earlier versions replay exactly as they did before. Setting the mode
+per request means one non-idempotent endpoint no longer forces the whole queue
+onto the lossy path.
 
 ### `OfflineMutations` — optimistic local updates
 
@@ -1036,6 +1118,18 @@ Every online event triggers a replay pass (overlapping triggers coalesce);
 if a pass leaves transient failures re-enqueued, another pass runs after
 `retryDelay` until the queue drains, connectivity drops, or the manager is
 disposed.
+
+**Syncing while the app is closed** — everything above runs inside your
+Flutter isolate, so it stops when the OS suspends the process (queued writes
+are safe on disk and drain at next launch via `replayOnStart`). If writes must
+land while the app *stays* closed, integrate `workmanager` /
+`background_fetch` at the app level — see
+[BACKGROUND_SYNC.md](BACKGROUND_SYNC.md) for the full recipe, including the
+one hazard that can lose data: Hive boxes are not isolate-safe, so a
+background task must **delegate to the running app via `IsolateNameServer`**
+instead of opening the queue box from a second isolate. The guide also covers
+platform setup (no runtime permissions are needed on either platform) and
+periodic background pulls into the persistent cache.
 
 ---
 
@@ -1567,6 +1661,7 @@ class MyAdapter implements HttpAdapter {
 | `CacheInterceptor` | HTTP response cache with four cache modes |
 | `CachePolicy` | Cache mode + TTL + ETag settings |
 | `CacheStore` | Abstract cache backend interface |
+| `EnumerableCacheStore` | Optional `keys()` capability enabling selective eviction |
 | `MemoryCacheStore` | Bounded LRU in-memory cache |
 | `HiveCacheStore` | Persistent Hive-backed cache (offline reads survive restarts) |
 | `CacheEntry` | Cached response (key, body, headers, ETag, timestamp) |
@@ -1576,6 +1671,7 @@ class MyAdapter implements HttpAdapter {
 | `OfflineQueueInterceptor` | Captures offline writes for later replay |
 | `OfflineQueueStore` | Abstract queue backend interface |
 | `PeekableOfflineQueueStore` | Non-destructive-read capability for crash-safe replay |
+| `ReplaySafety` | Per-request delivery guarantee (`atLeastOnce` / `atMostOnce`) |
 | `InMemoryOfflineQueueStore` | Volatile in-memory queue |
 | `HiveOfflineQueueStore` | Persistent Hive-backed queue store |
 | `OfflineQueueReplayer` | Delivers queued writes through a live client |
@@ -1625,7 +1721,7 @@ class MyAdapter implements HttpAdapter {
 
 ## Test suite
 
-**405 root-package tests + 4 example tests — all passing** (verified with
+**521 root-package tests + 4 example tests — all passing** (verified with
 `flutter test` at the repo root and in `example/`):
 
 ```text

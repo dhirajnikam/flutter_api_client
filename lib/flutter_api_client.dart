@@ -40,7 +40,7 @@
 ///
 /// ### Testing
 /// - [MockAdapter]: Route-based mocking with request capture
-/// - Built-in test suite with 400+ passing tests
+/// - Built-in test suite with 500+ passing tests
 /// - No external mock dependencies
 ///
 /// ## Quick Start
@@ -63,6 +63,21 @@
 ///   failure: (error) => print('Error: ${error.message}'),
 /// );
 /// ```
+///
+/// ## Version 1.7.0
+/// - Per-request replay safety ([QueuedRequest.replaySafety] / [ReplaySafety],
+///   [OfflineQueueInterceptor.replaySafetyOf]): opt a non-idempotent write out
+///   of at-least-once replay so an interrupted pass cannot duplicate it,
+///   without putting the whole queue on the lossy drain path
+/// - Selective cache invalidation ([CacheInterceptor.evictWhere] /
+///   `evictEndpoint`) backed by the optional [EnumerableCacheStore] capability
+///   — drop one stale endpoint without clearing the store
+/// - Fixed: replaying through the client the offline interceptor is attached to
+///   re-queued every failed replay, doubling the queue on each pass and
+///   resetting attempt counts so `maxAttempts` never dead-lettered
+/// - Fixed: a zero cache TTL sometimes read as fresh (`0 <= 0`), so
+///   `staleWhileRevalidate(Duration.zero)` served the cache on the request path
+///   depending on clock resolution
 ///
 /// ## Version 1.6.0
 /// - Optimistic offline mutations via [OfflineMutations]: `apply`/`rollback`

@@ -1,3 +1,85 @@
+## 1.7.0
+
+**Release Date**: 2026-08-18  
+**Type**: Minor Release (additive)  
+**Breaking Changes**: None (fully backward compatible with 1.6.0)
+
+Adds a per-request opt-out from at-least-once replay, selective cache
+invalidation, and documents the fallback-only cache configuration.
+
+### Added
+
+* **Per-request replay safety** — `QueuedRequest.replaySafety`
+  (`ReplaySafety.atLeastOnce` / `atMostOnce`, default `atLeastOnce`). Peekable
+  replay keeps a request persisted until its send settles, so an interruption
+  resends it — correct for idempotent endpoints, wrong for a plain create POST,
+  which would produce a duplicate record. Previously the only escape was
+  putting the whole queue back on the lossy drain path, so one non-idempotent
+  endpoint degraded every other request's guarantee. An `atMostOnce` request is
+  now removed *before* its send, and a transient failure dead-letters it rather
+  than retrying an ambiguous write. `OfflineQueueInterceptor` gains a
+  `replaySafetyOf` callback to set the mode per auto-queued request, mirroring
+  `priorityOf`, and `OfflineMutations.mutate` takes a matching `replaySafety`
+  argument so an optimistic create can opt out too.
+* **Selective cache invalidation** — `CacheInterceptor.evictWhere(test)` and
+  `evictEndpoint(endpoint)`. When a write changes what a list endpoint returns,
+  one entry can be dropped without clearing the whole store. Cache keys are
+  `requestIdentityKey` values (`METHOD url` plus sorted headers, including
+  `Authorization`), so they cannot be reconstructed by hand and `delete(key)`
+  was unusable from application code; these match on key text instead.
+  `evictEndpoint` matches only the `METHOD url` line, so a header value cannot
+  trigger an eviction.
+* **`EnumerableCacheStore`** — an optional capability interface adding
+  `keys()`, implemented by `MemoryCacheStore` and `HiveCacheStore`. It is a
+  separate interface rather than a method on `CacheStore` because Dart's
+  `implements` requires every member even when a default body is supplied —
+  adding `keys()` to `CacheStore` would break every existing
+  `implements CacheStore`. Stores without it make selective eviction a no-op.
+  Same shape as `PeekableOfflineQueueStore` on the queue side.
+
+### Fixed
+
+* **Replaying through the same client no longer duplicates the queue.**
+  `OfflineQueueReplayer` re-issues each request through the supplied
+  `ApiClient` — which is normally the same client the `OfflineQueueInterceptor`
+  is attached to, since the replay needs that client's auth and base URL. A
+  replay that failed while the device was still offline was caught by that
+  interceptor and queued *again*, on top of the replayer's own re-enqueue: the
+  queue doubled on every pass (1 → 2 → 4 → …) while offline, and because each
+  duplicate carried a reset `attempts` count, `maxAttempts` could never
+  dead-letter them — every copy was then delivered as a separate write on
+  reconnect. The replayer now marks its sends with an internal
+  `x-fac-offline-replay` header and the interceptor declines to re-queue them,
+  so the queue stays at one record per pending write and attempt counts
+  accumulate as intended. The header is stripped before the request reaches the
+  origin, like every other `x-fac-*` coordination header.
+
+* **A zero cache TTL is now reliably stale.** `CacheEntry.isFresh` was
+  `elapsed <= ttl`, so an entry with `ttl: Duration.zero` read as *fresh*
+  whenever `DateTime.now()` returned the same instant the entry was written
+  (`0 <= 0`). `CachePolicy.staleWhileRevalidate(Duration.zero)` — the
+  fallback-only configuration documented below — therefore served the cache on
+  the request path intermittently, depending on clock resolution and machine
+  load, instead of never. A zero or negative TTL is now never fresh; non-zero
+  TTLs keep the inclusive bound they always had.
+
+### Documentation
+
+* **`BACKGROUND_SYNC.md`** — a full guide to running the offline queue when
+  the app is not foregrounded: what the built-in pipeline already covers
+  (deferred delivery, `replayOnStart`, `syncNow` on resume), the
+  `workmanager` / BGTaskScheduler integration for true sync-while-closed, and
+  the Hive isolate hazard — background task isolates must delegate to a live
+  app via `IsolateNameServer` rather than open the queue box from a second
+  isolate. Includes periodic background-pull recipes into the persistent
+  cache. No runtime permissions are required on either platform.
+* `CachePolicy.staleWhileRevalidate` now documents `Duration.zero`: freshness
+  is `now - savedAt <= ttl`, so a zero TTL means the cache is never served on
+  the request path and only answers through the `onError` fallback. That is a
+  deliberate fallback-only configuration — always fetch live, degrade to the
+  last-known-good body offline — which previously took reading the source to
+  establish.
+
 ## 1.6.0
 
 **Release Date**: 2026-08-06  

@@ -35,6 +35,13 @@ class CachePolicy implements CachePolicyInterface {
   /// Serve a fresh cached entry immediately; when the entry is stale,
   /// revalidate against the origin (sending `If-None-Match` when an ETag is
   /// stored) before returning. Background revalidation is not yet implemented.
+  ///
+  /// Freshness is `now - savedAt <= ttl`, so [Duration.zero] makes every entry
+  /// stale the instant it is written: the cache is never served on the request
+  /// path, and the stored body is only ever returned by the `onError` fallback
+  /// when the network is unreachable. That is a useful fallback-only
+  /// configuration — always fetch live, but degrade to the last-known-good
+  /// body offline — rather than a degenerate one.
   factory CachePolicy.staleWhileRevalidate(Duration ttl) =>
       CachePolicy(mode: CacheMode.staleWhileRevalidate, ttl: ttl);
 

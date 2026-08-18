@@ -22,7 +22,7 @@ import 'cache_store.dart';
 ///
 /// Corrupt or partially-written records (e.g. from a crash mid-write) are
 /// treated as cache misses and deleted, never thrown.
-class HiveCacheStore implements CacheStore {
+class HiveCacheStore implements EnumerableCacheStore {
   /// Creates a store backed by an open Hive [box] of JSON strings.
   ///
   /// When [maxEntries] is set, writing past the cap evicts the entries with
@@ -64,6 +64,9 @@ class HiveCacheStore implements CacheStore {
   Future<void> clear() async {
     await box.clear();
   }
+
+  @override
+  Future<Iterable<String>> keys() async => box.keys.cast<String>().toList();
 
   Map<String, Object?> _toJson(CacheEntry e) => {
         'key': e.key,

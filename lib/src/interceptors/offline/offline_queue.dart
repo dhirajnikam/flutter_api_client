@@ -44,6 +44,19 @@ int compareQueuedRequests(QueuedRequest a, QueuedRequest b) {
   return a.id.compareTo(b.id);
 }
 
+/// Delivery guarantee for a queued request when a replay pass is interrupted.
+enum ReplaySafety {
+  /// Keep the request persisted until the send settles, so a crash between the
+  /// send and the removal resends it on the next pass. Safe for idempotent
+  /// endpoints (PUT, DELETE, anything keyed by a client-supplied id).
+  atLeastOnce,
+
+  /// Remove the request before sending, so an interruption loses it rather
+  /// than duplicating it. Correct for non-idempotent writes — a plain create
+  /// POST — where a duplicate record is worse than a dropped one.
+  atMostOnce,
+}
+
 /// A request captured while offline, pending replay.
 class QueuedRequest {
   /// Creates a queued request record.
@@ -58,6 +71,7 @@ class QueuedRequest {
     this.queryParameters,
     this.baseUrlOverride,
     this.priority = 0,
+    this.replaySafety = ReplaySafety.atLeastOnce,
   });
 
   /// Unique id within the queue; also the storage key for keyed stores.
@@ -96,6 +110,12 @@ class QueuedRequest {
   /// replayer if priority alone is not enough.
   final int priority;
 
+  /// Delivery guarantee when a replay pass is interrupted mid-send. Defaults
+  /// to [ReplaySafety.atLeastOnce], matching the pre-existing behaviour of
+  /// every peekable store. Set [ReplaySafety.atMostOnce] per request for
+  /// non-idempotent endpoints so an interrupted pass cannot duplicate a write.
+  final ReplaySafety replaySafety;
+
   /// Returns a copy with [attempts] incremented by one.
   QueuedRequest withAttempt() => QueuedRequest(
         id: id,
@@ -108,6 +128,7 @@ class QueuedRequest {
         queryParameters: queryParameters,
         baseUrlOverride: baseUrlOverride,
         priority: priority,
+        replaySafety: replaySafety,
       );
 
   /// JSON representation for persistent stores.
@@ -122,6 +143,7 @@ class QueuedRequest {
         if (queryParameters != null) 'queryParameters': queryParameters,
         if (baseUrlOverride != null) 'baseUrlOverride': baseUrlOverride,
         'priority': priority,
+        'replaySafety': replaySafety.name,
       };
 
   /// Strict parse; throws [FormatException] on a malformed record.
@@ -185,6 +207,13 @@ class QueuedRequest {
         ? priorityRaw
         : (priorityRaw is num ? priorityRaw.toInt() : 0);
 
+    // Records written before this field existed parse as atLeastOnce, which is
+    // exactly the behaviour they were queued under.
+    final safetyRaw = json['replaySafety'];
+    final replaySafety = safetyRaw == ReplaySafety.atMostOnce.name
+        ? ReplaySafety.atMostOnce
+        : ReplaySafety.atLeastOnce;
+
     return QueuedRequest(
       id: id,
       method: method,
@@ -196,6 +225,7 @@ class QueuedRequest {
       queryParameters: queryParameters,
       baseUrlOverride: rawBaseUrl is String ? rawBaseUrl : null,
       priority: priority,
+      replaySafety: replaySafety,
     );
   }
 }

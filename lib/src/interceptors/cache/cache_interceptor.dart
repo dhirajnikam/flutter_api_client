@@ -192,4 +192,50 @@ class CacheInterceptor extends Interceptor {
       );
 
   String _key(InterceptedRequest req) => requestIdentityKey(req);
+
+  /// Drops every cached entry whose identity key satisfies [test].
+  ///
+  /// Cache keys are `requestIdentityKey` values — `METHOD url` followed by the
+  /// sorted request headers, including `Authorization` — so they cannot
+  /// practically be reconstructed by hand and a plain `delete(key)` is unusable
+  /// from application code. Match on the key text instead:
+  ///
+  /// ```dart
+  /// // After a write that changes what /todos returns.
+  /// await cache.evictWhere((key) => key.contains('/todos'));
+  /// ```
+  ///
+  /// Returns the number of entries removed. Stores that do not implement
+  /// [EnumerableCacheStore] cannot be enumerated, so they remove nothing and
+  /// return `0`.
+  Future<int> evictWhere(bool Function(String key) test) async {
+    final s = store;
+    if (s is! EnumerableCacheStore) return 0;
+    // Materialise first: deleting while iterating the store's own view is not
+    // safe for every backend.
+    final matched = (await s.keys()).where(test).toList();
+    for (final key in matched) {
+      await store.delete(key);
+    }
+    return matched.length;
+  }
+
+  /// Drops every cached entry whose URL contains [endpoint].
+  ///
+  /// The common case behind [evictWhere]: invalidate one list endpoint after a
+  /// write without clearing the whole store. Matching is a substring test over
+  /// the key's `METHOD url` prefix, so it catches the endpoint regardless of
+  /// base URL, query string, or which credentials cached it.
+  ///
+  /// Returns the number of entries removed.
+  Future<int> evictEndpoint(String endpoint) =>
+      // ponytail: substring match, not URL parsing. Upgrade to a parsed-path
+      // comparison if an endpoint name ever collides with a query value.
+      evictWhere((key) {
+        // Only the first line is `METHOD url`; the rest are headers, whose
+        // values must not be able to trigger an eviction.
+        final newline = key.indexOf('\n');
+        final firstLine = newline == -1 ? key : key.substring(0, newline);
+        return firstLine.contains(endpoint);
+      });
 }
