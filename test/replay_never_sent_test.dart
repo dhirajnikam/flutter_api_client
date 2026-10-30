@@ -2,8 +2,13 @@
 // not the ambiguous "may have reached the server" case, so an atMostOnce write
 // must be kept, not dead-lettered, and must not burn a replay attempt.
 
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter_api_client/flutter_api_client.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hive/hive.dart';
 
 /// Always fails at the transport; counts how many sends were attempted.
 class _DownAdapter implements HttpAdapter {
@@ -15,6 +20,26 @@ class _DownAdapter implements HttpAdapter {
   Future<AdapterResponse> send(AdapterRequest request) async {
     sends++;
     throw error;
+  }
+
+  @override
+  void close() {}
+}
+
+/// Fails while [down], otherwise answers 200; counts every send.
+class _FlipAdapter implements HttpAdapter {
+  bool down = true;
+  int sends = 0;
+
+  @override
+  Future<AdapterResponse> send(AdapterRequest request) async {
+    sends++;
+    if (down) throw const NetworkError('down');
+    return AdapterResponse(
+      statusCode: 200,
+      headers: const {'content-type': 'application/json'},
+      bodyBytes: Uint8List.fromList(utf8.encode('{}')),
+    );
   }
 
   @override
@@ -173,4 +198,135 @@ void main() {
     final left = await queue.peekAll();
     expect(left.single.attempts, 0);
   });
+
+  test('kept atMostOnce write is delivered once after the cooldown elapses',
+      () async {
+    final adapter = _FlipAdapter();
+    final client = ApiClient(ApiClientConfig(
+      baseUrl: 'https://api.example.com',
+      adapter: adapter,
+      interceptors: [
+        CircuitBreakerInterceptor(
+          failureThreshold: 1,
+          cooldown: const Duration(milliseconds: 200),
+        ),
+      ],
+    ));
+    await client.get<dynamic>('trip'); // real failure opens the circuit
+    expect(adapter.sends, 1);
+
+    final queue = InMemoryOfflineQueueStore();
+    await queue.enqueue(_post());
+    final outcomes = <ReplayOutcome>[];
+    final replayer = OfflineQueueReplayer(
+      store: queue,
+      client: client,
+      onOutcome: (_, o) => outcomes.add(o),
+    );
+
+    final first = await replayer.replay();
+    expect(first.reEnqueued, 1);
+    expect(adapter.sends, 1);
+
+    adapter.down = false;
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    final second = await replayer.replay();
+
+    expect(second.succeeded, 1);
+    expect(second.deadLettered, 0);
+    expect(outcomes, [ReplayOutcome.reEnqueued, ReplayOutcome.succeeded]);
+    expect(adapter.sends, 2, reason: 'delivered exactly once');
+    expect(await queue.length, 0);
+  });
+
+  test('Hive-backed queue re-enqueues a never-sent record unchanged', () async {
+    final dir = await Directory.systemTemp.createTemp('replay_never_sent');
+    Hive.init(dir.path);
+    final box = await Hive.openBox<String>('never_sent_queue');
+    try {
+      final adapter = _DownAdapter(const NetworkError('down'));
+      final client = ApiClient(ApiClientConfig(
+        baseUrl: 'https://api.example.com',
+        adapter: adapter,
+        interceptors: [
+          CircuitBreakerInterceptor(
+            failureThreshold: 1,
+            cooldown: const Duration(hours: 1),
+          ),
+        ],
+      ));
+      await client.get<dynamic>('trip');
+
+      final store = HiveOfflineQueueStore(box);
+      await store.enqueue(_post());
+      final replayer = OfflineQueueReplayer(store: store, client: client);
+      for (var i = 0; i < 4; i++) {
+        final report = await replayer.replay();
+        expect(report.reEnqueued, 1);
+        expect(report.deadLettered, 0);
+      }
+
+      final left = await store.peekAll();
+      expect(left, hasLength(1));
+      expect(left.single.id, 'q1');
+      expect(left.single.attempts, 0);
+      expect(left.single.replaySafety, ReplaySafety.atMostOnce);
+      expect(adapter.sends, 1);
+    } finally {
+      await box.close();
+      await dir.delete(recursive: true);
+    }
+  });
+
+  test('NetworkError defaults to sent == true and stays const', () {
+    const plain = NetworkError('x');
+    const unsent = NetworkError('x', sent: false);
+    expect(plain.sent, isTrue);
+    expect(unsent.sent, isFalse);
+    expect(identical(plain, const NetworkError('x')), isTrue);
+    final withCause = NetworkError('x', cause: StateError('c'));
+    expect(withCause.sent, isTrue);
+    expect(withCause.cause, isA<StateError>());
+  });
+
+  // sent describes the last attempt, not the whole call: an earlier attempt may
+  // have reached the transport before the breaker started rejecting.
+  for (final retryFirst in [true, false]) {
+    test('retry then breaker reject stays ambiguous (retryFirst=$retryFirst)',
+        () async {
+      final adapter = _DownAdapter(const NetworkError('reset'));
+      final retry = RetryInterceptor(
+        policy: RetryPolicy(
+          maxAttempts: 3,
+          baseDelay: Duration.zero,
+          useJitter: false,
+          safeMethods: {'GET', 'POST'},
+        ),
+      );
+      final breaker = CircuitBreakerInterceptor(
+        failureThreshold: 1,
+        cooldown: const Duration(hours: 1),
+      );
+      final client = ApiClient(ApiClientConfig(
+        baseUrl: 'https://api.example.com',
+        adapter: adapter,
+        interceptors: retryFirst ? [retry, breaker] : [breaker, retry],
+      ));
+      final queue = InMemoryOfflineQueueStore();
+      await queue.enqueue(_post());
+      final dropped = <QueuedRequest>[];
+
+      final report = await OfflineQueueReplayer(
+        store: queue,
+        client: client,
+        onDeadLetter: (r, _) => dropped.add(r),
+      ).replay();
+
+      expect(adapter.sends, greaterThanOrEqualTo(1));
+      expect(report.reEnqueued, 0,
+          reason:
+              'the request already hit the transport; resending duplicates');
+      expect(dropped, hasLength(1));
+    });
+  }
 }

@@ -24,7 +24,7 @@ class RetryInterceptor extends Interceptor {
     if (_isSyntheticCacheMiss(res)) return ResolveResult(res);
     if (policy.shouldRetryResponse(res, attempt, method: req.method)) {
       await Future.delayed(policy.delayFor(attempt, res));
-      return ProceedResult(_nextAttempt(req, attempt));
+      return ProceedResult(_nextAttempt(req, attempt, mayHaveSent: true));
     }
     return ResolveResult(res);
   }
@@ -49,22 +49,49 @@ class RetryInterceptor extends Interceptor {
     final attempt = _attempt(req);
     if (policy.shouldRetryError(error, attempt, method: req.method)) {
       await Future.delayed(policy.delayFor(attempt, null));
-      return ProceedResult(_nextAttempt(req, attempt));
+      return ProceedResult(_nextAttempt(
+        req,
+        attempt,
+        mayHaveSent: _mayHaveSent(req) || !_neverSent(error),
+      ));
+    }
+    // NetworkError.sent describes only the last attempt. If an earlier one may
+    // have reached the server (e.g. a breaker opened between attempts), the
+    // call as a whole is ambiguous, so do not let the final error claim
+    // otherwise.
+    if (_neverSent(error) && _mayHaveSent(req)) {
+      return RejectResult(NetworkError(
+        error.message,
+        cause: error,
+        stackTrace: error.stackTrace,
+      ));
     }
     return RejectResult(error);
   }
+
+  bool _neverSent(ApiException error) => error is NetworkError && !error.sent;
 
   RetryPolicy _policyFor(InterceptedRequest req) {
     final override = req.options.retryPolicy;
     return override is RetryPolicy ? override : policy;
   }
 
+  // The header value is the attempt number, suffixed with `s` once an earlier
+  // attempt may have reached the server. It is internal and never sent.
   int _attempt(InterceptedRequest req) =>
-      int.tryParse(req.headers[_attemptHeader] ?? '1') ?? 1;
+      int.tryParse((req.headers[_attemptHeader] ?? '1').replaceAll('s', '')) ??
+      1;
 
-  InterceptedRequest _nextAttempt(InterceptedRequest req, int attempt) {
+  bool _mayHaveSent(InterceptedRequest req) =>
+      (req.headers[_attemptHeader] ?? '').endsWith('s');
+
+  InterceptedRequest _nextAttempt(
+    InterceptedRequest req,
+    int attempt, {
+    required bool mayHaveSent,
+  }) {
     final next = req.copy();
-    next.headers[_attemptHeader] = '${attempt + 1}';
+    next.headers[_attemptHeader] = '${attempt + 1}${mayHaveSent ? 's' : ''}';
     return next;
   }
 }
