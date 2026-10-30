@@ -6,7 +6,6 @@ import 'package:flutter_api_client/flutter_api_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _Adapter implements HttpAdapter {
-  _Adapter({this.gate});
   int sends = 0;
   Completer<void>? gate;
   @override
@@ -32,9 +31,8 @@ QueuedRequest _q(String id,
       replaySafety: s,
     );
 
-ApiClient _client(_Adapter a, List<Interceptor> i) => ApiClient(
-    ApiClientConfig(
-        baseUrl: 'https://api.example.com', adapter: a, interceptors: i));
+ApiClient _client(_Adapter a, List<Interceptor> i) => ApiClient(ApiClientConfig(
+    baseUrl: 'https://api.example.com', adapter: a, interceptors: i));
 
 /// Peekable store whose enqueue throws after [okEnqueues] successes.
 class _FlakyStore extends InMemoryOfflineQueueStore {
@@ -87,8 +85,7 @@ void main() {
     }
     final dead = <String>[];
     final r = await OfflineQueueReplayer(
-            store: q, client: c, onDeadLetter: (x, _) => dead.add(x.id))
-        .replay();
+        store: q, client: c, onDeadLetter: (x, _) => dead.add(x.id)).replay();
     expect(a.sends, 2, reason: 'trip + exactly one probe');
     expect(r.deadLettered, 1);
     expect(r.reEnqueued, 2);
@@ -132,8 +129,9 @@ void main() {
       }
       final outcomes = <String, ReplayOutcome>{};
       final r = await OfflineQueueReplayer(
-              store: q, client: c, onOutcome: (x, o) => outcomes[x.id] = o)
-          .replay();
+          store: q,
+          client: c,
+          onOutcome: (x, o) => outcomes[x.id] = o).replay();
       expect(a.sends, 1, reason: '$s only the first reaches transport');
       expect(r.succeeded + r.reEnqueued + r.deadLettered, 3);
       expect(await q.length, r.reEnqueued);

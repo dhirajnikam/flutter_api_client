@@ -297,7 +297,6 @@ void main() {
       final adapter = _DownAdapter(const NetworkError('reset'));
       final retry = RetryInterceptor(
         policy: RetryPolicy(
-          maxAttempts: 3,
           baseDelay: Duration.zero,
           useJitter: false,
           safeMethods: {'GET', 'POST'},
