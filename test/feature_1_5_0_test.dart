@@ -400,6 +400,46 @@ void main() {
           reason: 'the default host circuit is unaffected');
       expect(breaker.stateFor('api.example.com'), CircuitState.closed);
     });
+
+    // With [breaker, retry] a failed probe is retried before the breaker sees
+    // it, and the retries are held back as "probe in flight", so the probe's
+    // outcome is never recorded. The circuit must not stay half-open forever.
+    test('a probe lost to retries does not wedge the circuit half-open',
+        () async {
+      var reachable = false;
+      final mock = MockAdapter();
+      mock.onRequest('GET', RegExp(r'/wedge$'), (_) async {
+        if (!reachable) throw const NetworkError('down');
+        return AdapterResponse(
+            statusCode: 200,
+            headers: const {'content-type': 'application/json'},
+            bodyBytes: _b('{}'));
+      });
+      final breaker = CircuitBreakerInterceptor(
+        failureThreshold: 1,
+        cooldown: const Duration(milliseconds: 30),
+      );
+      final client = ApiClient(ApiClientConfig.test(
+        baseUrl: 'https://api.example.com',
+        adapter: mock,
+        interceptors: [
+          breaker,
+          RetryInterceptor(
+              policy: RetryPolicy(baseDelay: Duration.zero, useJitter: false)),
+        ],
+      ));
+
+      await client.get<dynamic>('wedge');
+      expect(breaker.stateFor('api.example.com'), CircuitState.open);
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await client.get<dynamic>('wedge'); // probe fails, retries held back
+
+      reachable = true;
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      final res = await client.get<dynamic>('wedge');
+      expect(res.isSuccess, isTrue);
+      expect(breaker.stateFor('api.example.com'), CircuitState.closed);
+    });
   });
 
   group('ApiResult ergonomics', () {

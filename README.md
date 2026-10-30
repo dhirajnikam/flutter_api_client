@@ -1147,7 +1147,8 @@ out its full timeout. Circuits are tracked per host: after
 and HTTP 5xx) the circuit opens and requests to that host are rejected
 immediately with a `NetworkError` for `cooldown` (its `sent` is `false`, so
 replay knows nothing reached the server); then a single half-open probe decides
-whether to close it again.
+whether to close it again. A probe whose outcome is never recorded (cancelled,
+or lost to retries) is replaced by a fresh one after another `cooldown`.
 
 ```dart
 ApiClient(ApiClientConfig(

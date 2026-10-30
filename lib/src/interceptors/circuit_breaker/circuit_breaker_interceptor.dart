@@ -11,7 +11,8 @@ enum CircuitState {
   open,
 
   /// Cooldown elapsed; a single probe request is allowed through to test
-  /// whether the origin recovered.
+  /// whether the origin recovered. If its outcome is not recorded within the
+  /// cooldown (cancelled, or lost to retries), a fresh probe replaces it.
   halfOpen,
 }
 
@@ -24,10 +25,14 @@ enum CircuitState {
 /// `open`s and every request to that host is rejected immediately with a
 /// [NetworkError] for [cooldown]. After the cooldown one probe request is
 /// allowed through (`halfOpen`): success closes the circuit, failure reopens
-/// it for another cooldown.
+/// it for another cooldown. A probe whose outcome goes unrecorded for a whole
+/// cooldown is replaced by a fresh one, so a slow probe can briefly overlap
+/// its replacement; whichever finishes decides.
 ///
 /// Place it BEFORE `RetryInterceptor` in the interceptor list so retries of a
-/// tripped host are also cut short.
+/// tripped host are also cut short. In that order the breaker sees only each
+/// call's final outcome, so [failureThreshold] counts failed calls, not
+/// individual retry attempts.
 ///
 /// ```dart
 /// interceptors: [
@@ -78,12 +83,20 @@ class CircuitBreakerInterceptor extends Interceptor {
       case CircuitState.closed:
         return ProceedResult(req);
       case CircuitState.halfOpen:
-        // One probe is already in flight; hold the rest back.
-        return _rejectFast(req);
+        // One probe is already in flight; hold the rest back. Its outcome can
+        // go unrecorded (cancelled, or retried by an interceptor below this one
+        // and then held back here), so after another cooldown let a new probe
+        // through instead of staying half-open forever.
+        if (DateTime.now().isBefore(circuit.reopenAt!)) {
+          return _rejectFast(req);
+        }
+        circuit.reopenAt = DateTime.now().add(cooldown);
+        return ProceedResult(req); // a fresh probe
       case CircuitState.open:
         if (DateTime.now().isBefore(circuit.reopenAt!)) {
           return _rejectFast(req);
         }
+        circuit.reopenAt = DateTime.now().add(cooldown); // the probe's lease
         _transition(_key(req), circuit, CircuitState.halfOpen);
         return ProceedResult(req); // the probe
     }

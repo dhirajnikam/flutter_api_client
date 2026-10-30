@@ -336,7 +336,7 @@ void main() {
       () async {
     final breaker = CircuitBreakerInterceptor(
       failureThreshold: 1,
-      cooldown: const Duration(milliseconds: 1),
+      cooldown: const Duration(milliseconds: 200),
     );
     final retry = RetryInterceptor(
       policy: RetryPolicy(
@@ -354,7 +354,7 @@ void main() {
         );
 
     await breaker.onError(req(), const NetworkError('down')); // trips open
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await Future<void>.delayed(const Duration(milliseconds: 250));
     expect(await breaker.onRequest(req()), isA<ProceedResult>()); // probe
     expect(breaker.stateFor('api.example.com'), CircuitState.halfOpen);
 

@@ -32,6 +32,11 @@
   recorded as a failure, which could reopen a half-open circuit while its probe
   was still in flight. Its fabricated rejections are also now tracked weakly,
   so ones that are retried no longer pile up in memory while the circuit is open.
+* **A half-open circuit can no longer get stuck.** With `[breaker, retry]`, a
+  failed probe was retried, each retry was held back as "probe in flight", and
+  the probe's outcome was never recorded — the host stayed rejected forever,
+  even after it recovered. A probe whose outcome is not recorded within
+  `cooldown` (lost to retries, or cancelled) is now replaced by a fresh one.
 
 ## 1.7.0
 

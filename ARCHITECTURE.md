@@ -214,7 +214,7 @@ delay = min(baseDelay * 2^attempt + jitter, maxDelay)
 
 **Location**: `lib/src/interceptors/circuit_breaker/circuit_breaker_interceptor.dart`
 
-**Flow**: per-host circuits count consecutive transport failures (network/timeout errors and HTTP 5xx). At `failureThreshold` the circuit opens and requests to that host reject immediately with a `NetworkError` until `cooldown` elapses; then one half-open probe decides between closing (success) and reopening (failure).
+**Flow**: per-host circuits count consecutive transport failures (network/timeout errors and HTTP 5xx). At `failureThreshold` the circuit opens and requests to that host reject immediately with a `NetworkError` until `cooldown` elapses; then one half-open probe decides between closing (success) and reopening (failure). A probe whose outcome goes unrecorded (cancelled, or retried by an interceptor below the breaker and then held back) is replaced after another `cooldown`, so the circuit cannot stay half-open forever.
 
 **Design Decision**: rejections reuse `NetworkError` (marked `sent: false`, so replay can re-queue them without counting an attempt) rather than adding a new `ApiException` subtype — `ApiException` is sealed, so a new subtype would break user code that switches exhaustively. The breaker tags its own synthetic rejections by identity so the chain's error pass never counts a fail-fast as another origin failure. 4xx responses and cancellations never trip the circuit (they prove reachability or say nothing about it).
 
