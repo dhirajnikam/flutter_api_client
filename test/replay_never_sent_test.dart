@@ -328,4 +328,44 @@ void main() {
       expect(dropped, hasLength(1));
     });
   }
+
+  // Retry re-wraps a fail-fast rejection as sent:true once an earlier attempt
+  // may have sent; the breaker (after it on the error side) must still see
+  // through the wrapper, or a held-back request "fails" the in-flight probe.
+  test('breaker does not count its own re-wrapped rejection as a failure',
+      () async {
+    final breaker = CircuitBreakerInterceptor(
+      failureThreshold: 1,
+      cooldown: const Duration(milliseconds: 1),
+    );
+    final retry = RetryInterceptor(
+      policy: RetryPolicy(
+        maxAttempts: 2,
+        baseDelay: Duration.zero,
+        useJitter: false,
+        safeMethods: {'GET', 'POST'},
+      ),
+    );
+    InterceptedRequest req() => InterceptedRequest(
+          method: 'POST',
+          endpoint: 'https://api.example.com/todos',
+          headers: {},
+          options: const RequestOptions(),
+        );
+
+    await breaker.onError(req(), const NetworkError('down')); // trips open
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(await breaker.onRequest(req()), isA<ProceedResult>()); // probe
+    expect(breaker.stateFor('api.example.com'), CircuitState.halfOpen);
+
+    // A second request: attempt 1 failed ambiguously, attempt 2 is held back.
+    final first = await retry.onError(req(), const NetworkError('reset'));
+    final second = (first as ProceedResult).request;
+    final rejected = await breaker.onRequest(second) as RejectResult;
+    final wrapped = await retry.onError(second, rejected.error) as RejectResult;
+    expect((wrapped.error as NetworkError).sent, isTrue);
+
+    await breaker.onError(second, wrapped.error);
+    expect(breaker.stateFor('api.example.com'), CircuitState.halfOpen);
+  });
 }

@@ -60,10 +60,11 @@ class CircuitBreakerInterceptor extends Interceptor {
 
   final Map<String, _Circuit> _circuits = {};
 
-  /// Rejections this breaker fabricated itself. Tracked by identity so the
-  /// chain's own onError pass over this interceptor does not count a
-  /// fail-fast rejection as another origin failure.
-  final Set<ApiException> _synthetic = {};
+  /// Rejections this breaker fabricated itself, so the chain's own onError pass
+  /// over this interceptor does not count a fail-fast rejection as another
+  /// origin failure. Weak: a rejection retried by an interceptor below this one
+  /// never comes back here, and must not be held forever.
+  final Expando<bool> _synthetic = Expando();
 
   /// Current state of the circuit for [host] (as produced by the request's
   /// resolved base URL). Reads do not advance the open→halfOpen transition.
@@ -104,7 +105,7 @@ class CircuitBreakerInterceptor extends Interceptor {
     InterceptedRequest req,
     ApiException error,
   ) async {
-    if (_synthetic.remove(error)) return RejectResult(error);
+    if (_isSynthetic(error)) return RejectResult(error);
     if (error is NetworkError || error is TimeoutError) {
       _record(_key(req), failure: true);
     }
@@ -119,8 +120,17 @@ class CircuitBreakerInterceptor extends Interceptor {
       '(origin marked down after $failureThreshold consecutive failures).',
       sent: false,
     );
-    _synthetic.add(err);
+    _synthetic[err] = true;
     return RejectResult(err);
+  }
+
+  /// Follows `cause`, since `RetryInterceptor` re-wraps a fail-fast rejection
+  /// (as `sent: true`) when an earlier attempt may have reached the server.
+  bool _isSynthetic(Object? error) {
+    for (var e = error; e is ApiException; e = e.cause) {
+      if (_synthetic[e] ?? false) return true;
+    }
+    return false;
   }
 
   void _record(String key, {required bool failure}) {

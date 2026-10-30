@@ -24,6 +24,15 @@
   opens between attempts), `RetryInterceptor` reports the final error with
   `sent: true`.
 
+### Fixed
+
+* **`CircuitBreakerInterceptor` no longer counts its own re-wrapped rejection
+  as an origin failure.** With the documented `[breaker, retry]` order, a
+  fail-fast rejection that `RetryInterceptor` re-wrapped as `sent: true` was
+  recorded as a failure, which could reopen a half-open circuit while its probe
+  was still in flight. Its fabricated rejections are also now tracked weakly,
+  so ones that are retried no longer pile up in memory while the circuit is open.
+
 ## 1.7.0
 
 **Release Date**: 2026-08-18  
