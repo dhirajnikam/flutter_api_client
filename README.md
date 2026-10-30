@@ -603,7 +603,7 @@ All exceptions from `ApiClient` derive from the sealed `ApiException`:
 
 | Subtype | When raised |
 |---|---|
-| `NetworkError` | DNS, socket, or connectivity failure |
+| `NetworkError` | DNS, socket, or connectivity failure. `sent` is `false` when the request was rejected before transmission (e.g. an open circuit breaker) |
 | `TimeoutError` | Request exceeded its timeout |
 | `CancelError` | Cancelled via `CancelToken.cancel()` |
 | `PayloadTooLargeError` | Configured request or response byte limit was exceeded |
@@ -944,7 +944,9 @@ The replayer processes the queue in priority-then-`createdAt` order and re-issue
 request through `client`, so a fresh `Authorization` token is attached
 automatically. A request that fails transiently (network/timeout) is
 re-enqueued with an incremented attempt count; once it reaches `maxAttempts`
-it is dead-lettered instead of looping forever. A request the server actually
+it is dead-lettered instead of looping forever. A failure that never sent the
+request (`NetworkError.sent == false`) is re-enqueued without using up an
+attempt. A request the server actually
 rejects (a non network/timeout error) is dropped, and the optional
 `onDeadLetter` callback tells you about every drop.
 
@@ -1039,8 +1041,12 @@ OfflineQueueInterceptor(
 An `atMostOnce` request that fails transiently is **dead-lettered rather than
 retried**: a network failure mid-send is ambiguous — the write may already have
 reached the server — so retrying risks the duplicate this mode exists to
-prevent. The write is not lost silently; it is reported through `onDeadLetter`
-so you can surface it or re-submit deliberately.
+prevent. The one exception is a failure that never sent the request, such as
+an open circuit breaker rejecting it: nothing reached the server, so the
+request stays queued without using up an attempt. While a host's circuit keeps
+reopening, such a write therefore stays queued until the circuit lets a request
+through. The write is not lost silently; a dead-lettered one is reported through
+`onDeadLetter` so you can surface it or re-submit deliberately.
 
 The default is `atLeastOnce`, so existing behaviour is unchanged and records
 queued by earlier versions replay exactly as they did before. Setting the mode
@@ -1139,8 +1145,9 @@ Fails fast when an origin looks down, instead of letting every request wait
 out its full timeout. Circuits are tracked per host: after
 `failureThreshold` consecutive transport failures (network/timeout errors
 and HTTP 5xx) the circuit opens and requests to that host are rejected
-immediately with a `NetworkError` for `cooldown`; then a single half-open
-probe decides whether to close it again.
+immediately with a `NetworkError` for `cooldown` (its `sent` is `false`, so
+replay knows nothing reached the server); then a single half-open probe decides
+whether to close it again.
 
 ```dart
 ApiClient(ApiClientConfig(

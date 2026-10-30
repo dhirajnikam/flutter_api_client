@@ -216,7 +216,7 @@ delay = min(baseDelay * 2^attempt + jitter, maxDelay)
 
 **Flow**: per-host circuits count consecutive transport failures (network/timeout errors and HTTP 5xx). At `failureThreshold` the circuit opens and requests to that host reject immediately with a `NetworkError` until `cooldown` elapses; then one half-open probe decides between closing (success) and reopening (failure).
 
-**Design Decision**: rejections reuse `NetworkError` rather than adding a new `ApiException` subtype — `ApiException` is sealed, so a new subtype would break user code that switches exhaustively. The breaker tags its own synthetic rejections by identity so the chain's error pass never counts a fail-fast as another origin failure. 4xx responses and cancellations never trip the circuit (they prove reachability or say nothing about it).
+**Design Decision**: rejections reuse `NetworkError` (marked `sent: false`, so replay can re-queue them without counting an attempt) rather than adding a new `ApiException` subtype — `ApiException` is sealed, so a new subtype would break user code that switches exhaustively. The breaker tags its own synthetic rejections by identity so the chain's error pass never counts a fail-fast as another origin failure. 4xx responses and cancellations never trip the circuit (they prove reachability or say nothing about it).
 
 ### Offline sync (OfflineSyncManager)
 

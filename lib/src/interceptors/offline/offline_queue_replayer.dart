@@ -12,12 +12,16 @@ enum ReplayOutcome {
   /// Replayed successfully and dropped from the queue.
   succeeded,
 
-  /// Failed transiently and put back for a later pass.
+  /// Failed transiently and put back for a later pass. A failure that never
+  /// sent the request (`NetworkError.sent == false`) does not count against
+  /// `maxAttempts`.
   reEnqueued,
 
-  /// Dropped without success — either the server rejected it (non-transient) or
-  /// it exhausted `maxAttempts`. This is the terminal failure an optimistic
-  /// layer should roll back on.
+  /// Dropped without success — the server rejected it (non-transient), it
+  /// exhausted `maxAttempts`, or it is an `atMostOnce` request whose transient
+  /// failure was ambiguous (it may have reached the server, so it is not
+  /// resent). This is the terminal failure an optimistic layer should roll back
+  /// on.
   deadLettered,
 }
 
@@ -34,11 +38,13 @@ class OfflineReplayReport {
   final int succeeded;
 
   /// Requests that failed transiently (network/timeout) and were put back.
+  /// Requests rejected before being sent (e.g. by an open circuit) are counted
+  /// here too, without using up an attempt.
   final int reEnqueued;
 
-  /// Requests dropped without success: either a non-transient failure
-  /// (the server was reached and rejected them) or they exhausted
-  /// `maxAttempts`.
+  /// Requests dropped without success: a non-transient failure (the server was
+  /// reached and rejected them), requests that exhausted `maxAttempts`, or
+  /// `atMostOnce` requests whose transient failure was ambiguous.
   final int deadLettered;
 
   /// Total requests processed in the pass.
@@ -67,7 +73,9 @@ class OfflineReplayReport {
 ///   replay targets the same URL the original request did.
 /// - A request that fails transiently is re-enqueued with an incremented
 ///   attempt count; once it reaches [maxAttempts] it is dead-lettered instead
-///   of looping forever (poison-message protection).
+///   of looping forever (poison-message protection). A failure that provably
+///   never sent the request (`NetworkError.sent == false`, e.g. an open circuit)
+///   is re-enqueued without consuming an attempt, in either mode.
 /// - A request that reaches the server and is rejected (non network/timeout)
 ///   is dropped — replaying it would not help.
 /// - Overlapping [replay] calls share one pass: a second call while a pass is

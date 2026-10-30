@@ -1,3 +1,29 @@
+## Unreleased
+
+**Type**: Patch (additive field, one replay behaviour change)  
+**Breaking Changes**: None
+
+### Added
+
+* **`NetworkError.sent`** — `bool`, default `true`. `false` means the request
+  was definitely not transmitted, so retrying cannot duplicate it.
+  `CircuitBreakerInterceptor`'s fail-fast rejections set it to `false`. The
+  default `DefaultHttpAdapter` cannot yet tell connect-phase failures apart, so
+  its errors stay `true`; a custom adapter may throw `sent: false`.
+
+### Changed
+
+* **Never-sent failures no longer dead-letter `atMostOnce` writes.** A replay
+  that failed with `sent: false` re-enqueues the request in either mode without
+  consuming an attempt. Previously an `atMostOnce` write rejected by an open
+  circuit was dead-lettered and its `OfflineMutations` rollback ran; it now
+  stays queued. The cost is that a write to a host whose circuit keeps reopening
+  stays queued until a request gets through.
+* **Retries keep the ambiguity.** If an earlier attempt may have reached the
+  server and a later one is rejected before sending (for example, the breaker
+  opens between attempts), `RetryInterceptor` reports the final error with
+  `sent: true`.
+
 ## 1.7.0
 
 **Release Date**: 2026-08-18  

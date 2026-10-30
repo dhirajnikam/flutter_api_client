@@ -61,8 +61,9 @@ class OfflineMutations {
   /// [replaySafety] sets the delivery guarantee: the default
   /// [ReplaySafety.atLeastOnce] may resend a request whose send was interrupted,
   /// so pass [ReplaySafety.atMostOnce] for a non-idempotent create where a
-  /// duplicate record is worse than a dropped one. An `atMostOnce` mutation that
-  /// cannot be delivered is dead-lettered, which runs [rollback].
+  /// duplicate record is worse than a dropped one. An `atMostOnce` mutation
+  /// whose transient failure is ambiguous is dead-lettered, which runs
+  /// [rollback]; one rejected before it was sent (open circuit) stays queued.
   /// [rollback] is run if the write is rejected by the server now, or if it is
   /// dead-lettered during replay later.
   ///
