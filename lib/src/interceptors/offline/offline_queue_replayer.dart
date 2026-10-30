@@ -147,8 +147,8 @@ class OfflineQueueReplayer {
     for (final request in pending) {
       // at-most-once: drop the record before the send so an interruption
       // between here and the response loses the request instead of resending
-      // it. A transient failure below re-enqueues it, so the retry path is
-      // unchanged — only the crash window differs.
+      // it. A failure that provably never sent it re-enqueues it below; any
+      // other transient failure dead-letters it.
       if (request.replaySafety == ReplaySafety.atMostOnce) {
         try {
           await _detach(request);
@@ -190,13 +190,17 @@ class OfflineQueueReplayer {
         await onOutcome?.call(request, ReplayOutcome.deadLettered);
         continue;
       }
-      final next = request.withAttempt();
-      // A transient failure is exactly the ambiguous case: the request may
-      // have reached the server before the connection dropped. Retrying an
-      // atMostOnce request would risk the duplicate the mode exists to
-      // prevent, so it is dead-lettered instead — the caller is told the write
-      // was abandoned rather than it being silently resent or silently lost.
-      if (request.replaySafety == ReplaySafety.atMostOnce ||
+      // A failure that definitely never left the device (e.g. an open circuit
+      // breaker) is safe to retry in either mode and says nothing about the
+      // request itself, so it does not consume an attempt.
+      final neverSent = error is NetworkError && !error.sent;
+      final next = neverSent ? request : request.withAttempt();
+      // Any other transient failure is ambiguous: the request may have reached
+      // the server before the connection dropped. Retrying an atMostOnce
+      // request would risk the duplicate the mode exists to prevent, so it is
+      // dead-lettered instead — the caller is told the write was abandoned
+      // rather than it being silently resent or silently lost.
+      if ((request.replaySafety == ReplaySafety.atMostOnce && !neverSent) ||
           next.attempts >= maxAttempts) {
         deadLettered++;
         await _settle(request, keep: false);

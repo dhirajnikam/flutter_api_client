@@ -117,6 +117,7 @@ class CircuitBreakerInterceptor extends Interceptor {
     final err = NetworkError(
       'Circuit breaker open for ${_key(req)}: failing fast '
       '(origin marked down after $failureThreshold consecutive failures).',
+      sent: false,
     );
     _synthetic.add(err);
     return RejectResult(err);

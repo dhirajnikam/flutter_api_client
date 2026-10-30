@@ -109,6 +109,9 @@ class DefaultHttpAdapter implements HttpAdapter, StreamingHttpAdapter {
       if (request.cancelToken?.isCancelled ?? false) {
         throw request.cancelToken!.error!;
       }
+      // ponytail: connect-phase failures (DNS, refused) are not told apart from
+      // mid-flight ones — package:http fuses connect, write and response.
+      // `sent: false` is the extension point if that ever becomes detectable.
       throw NetworkError(e.toString(), cause: e, stackTrace: st);
     } finally {
       removeListener?.call();
@@ -250,6 +253,9 @@ class DefaultHttpAdapter implements HttpAdapter, StreamingHttpAdapter {
       if (request.cancelToken?.isCancelled ?? false) {
         throw request.cancelToken!.error!;
       }
+      // ponytail: connect-phase failures (DNS, refused) are not told apart from
+      // mid-flight ones — package:http fuses connect, write and response.
+      // `sent: false` is the extension point if that ever becomes detectable.
       throw NetworkError(e.toString(), cause: e, stackTrace: st);
     }
   }
