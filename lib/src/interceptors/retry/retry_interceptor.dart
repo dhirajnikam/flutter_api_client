@@ -62,7 +62,9 @@ class RetryInterceptor extends Interceptor {
     if (_neverSent(error) && _mayHaveSent(req)) {
       return RejectResult(NetworkError(
         error.message,
-        cause: error,
+        // One hop to the transport cause; a breaker rejection has none, so it
+        // becomes the cause itself (the breaker follows it to spot its own).
+        cause: error.cause ?? error,
         stackTrace: error.stackTrace,
       ));
     }
@@ -77,13 +79,17 @@ class RetryInterceptor extends Interceptor {
   }
 
   // The header value is the attempt number, suffixed with `s` once an earlier
-  // attempt may have reached the server. It is internal and never sent.
-  int _attempt(InterceptedRequest req) =>
-      int.tryParse((req.headers[_attemptHeader] ?? '1').replaceAll('s', '')) ??
-      1;
+  // attempt may have reached the server. It is internal and never sent; any
+  // other value (e.g. one a caller forged) reads as a first, unsent attempt.
+  static final _attemptValue = RegExp(r'^([1-9]\d{0,8})(s?)$');
 
-  bool _mayHaveSent(InterceptedRequest req) =>
-      (req.headers[_attemptHeader] ?? '').endsWith('s');
+  RegExpMatch? _parse(InterceptedRequest req) =>
+      _attemptValue.firstMatch(req.headers[_attemptHeader] ?? '');
+
+  int _attempt(InterceptedRequest req) =>
+      int.parse(_parse(req)?.group(1) ?? '1');
+
+  bool _mayHaveSent(InterceptedRequest req) => _parse(req)?.group(2) == 's';
 
   InterceptedRequest _nextAttempt(
     InterceptedRequest req,

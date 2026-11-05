@@ -946,7 +946,11 @@ automatically. A request that fails transiently (network/timeout) is
 re-enqueued with an incremented attempt count; once it reaches `maxAttempts`
 it is dead-lettered instead of looping forever. A failure that never sent the
 request (`NetworkError.sent == false`) is re-enqueued without using up an
-attempt. A request the server actually
+attempt; pass `neverSentMaxAge` to dead-letter such a request once it has been
+queued that long, instead of keeping it until the host comes back. The age is
+measured from when the request was queued, so a write queued during a long
+offline spell can expire on its first never-sent replay. A request
+the server actually
 rejects (a non network/timeout error) is dropped, and the optional
 `onDeadLetter` callback tells you about every drop.
 
@@ -1148,8 +1152,11 @@ and HTTP 5xx) the circuit opens and requests to that host are rejected
 immediately with a `NetworkError` for `cooldown` (its `sent` is `false`, so
 replay knows nothing reached the server); then a single half-open probe decides
 whether to close it again. The probe's own retries go through, so its final
-outcome is what counts. A probe whose outcome is never recorded (for example,
-cancelled) is replaced by a fresh one after another `cooldown`.
+outcome is what counts. Late outcomes of requests admitted before the circuit
+opened are ignored, and so are responses the cache served. If a slow probe is
+replaced after a `cooldown`, its later success still closes the circuit. A probe whose outcome is never recorded (for example,
+cancelled) is replaced by a fresh one after another `cooldown`. Pass `now:` to
+supply your own clock in tests.
 
 ```dart
 ApiClient(ApiClientConfig(

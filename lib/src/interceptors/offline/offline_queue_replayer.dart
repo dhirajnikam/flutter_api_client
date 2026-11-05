@@ -75,7 +75,9 @@ class OfflineReplayReport {
 ///   attempt count; once it reaches [maxAttempts] it is dead-lettered instead
 ///   of looping forever (poison-message protection). A failure that provably
 ///   never sent the request (`NetworkError.sent == false`, e.g. an open circuit)
-///   is re-enqueued without consuming an attempt, in either mode.
+///   is re-enqueued without consuming an attempt, in either mode. Set
+///   [neverSentMaxAge] to dead-letter such a request once it has been queued
+///   that long, so a host that stays down cannot hold it forever.
 /// - A request that reaches the server and is rejected (non network/timeout)
 ///   is dropped — replaying it would not help.
 /// - Overlapping [replay] calls share one pass: a second call while a pass is
@@ -99,7 +101,11 @@ class OfflineQueueReplayer {
     this.onDeadLetter,
     this.compare,
     this.onOutcome,
-  });
+    this.neverSentMaxAge,
+  }) : assert(
+          neverSentMaxAge == null || neverSentMaxAge >= Duration.zero,
+          'neverSentMaxAge must not be negative',
+        );
 
   /// Queue to drain and replay from.
   final OfflineQueueStore store;
@@ -109,6 +115,14 @@ class OfflineQueueReplayer {
 
   /// Maximum total replay attempts before a request is dead-lettered.
   final int maxAttempts;
+
+  /// How long (since [QueuedRequest.createdAt]) a request that keeps failing
+  /// without being sent (`NetworkError.sent == false`) stays queued before it
+  /// is dead-lettered. Such failures do not consume [maxAttempts], so without
+  /// this a write to a host whose circuit keeps reopening is kept forever.
+  /// `null` (the default) keeps it until a request gets through;
+  /// [Duration.zero] dead-letters it on its first never-sent failure.
+  final Duration? neverSentMaxAge;
 
   /// Called when a request is dropped without success, with the request and
   /// the error from its final attempt (`null` when the failure produced no
@@ -203,13 +217,18 @@ class OfflineQueueReplayer {
       // request itself, so it does not consume an attempt.
       final neverSent = error is NetworkError && !error.sent;
       final next = neverSent ? request : request.withAttempt();
+      final maxAge = neverSentMaxAge;
+      final expired = neverSent &&
+          maxAge != null &&
+          DateTime.now().difference(request.createdAt) >= maxAge;
       // Any other transient failure is ambiguous: the request may have reached
       // the server before the connection dropped. Retrying an atMostOnce
       // request would risk the duplicate the mode exists to prevent, so it is
       // dead-lettered instead — the caller is told the write was abandoned
       // rather than it being silently resent or silently lost.
       if ((request.replaySafety == ReplaySafety.atMostOnce && !neverSent) ||
-          next.attempts >= maxAttempts) {
+          next.attempts >= maxAttempts ||
+          expired) {
         deadLettered++;
         await _settle(request, keep: false);
         _notifyDeadLetter(request, error);

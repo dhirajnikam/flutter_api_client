@@ -136,12 +136,14 @@ class OfflineMutations {
   OfflineQueueReplayer buildReplayer({
     int maxAttempts = 3,
     Comparator<QueuedRequest>? compare,
+    Duration? neverSentMaxAge,
   }) =>
       OfflineQueueReplayer(
         store: store,
         client: client,
         maxAttempts: maxAttempts,
         compare: compare,
+        neverSentMaxAge: neverSentMaxAge,
         onOutcome: handleOutcome,
       );
 

@@ -7,6 +7,9 @@ import 'package:flutter_api_client/flutter_api_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 
+/// Fake clock for circuit-breaker cooldowns, so tests need not sleep.
+var _clock = DateTime(2026);
+
 Uint8List _b(String s) => Uint8List.fromList(utf8.encode(s));
 
 Future<Box<String>> _openBox(String suffix) async {
@@ -335,6 +338,7 @@ void main() {
       final breaker = CircuitBreakerInterceptor(
         failureThreshold: 2,
         cooldown: const Duration(milliseconds: 30),
+        now: () => _clock,
       );
       final client = buildClient(mock, breaker);
 
@@ -343,7 +347,7 @@ void main() {
       expect(breaker.stateFor('api.example.com'), CircuitState.open);
 
       reachable = true;
-      await Future<void>.delayed(const Duration(milliseconds: 60));
+      _clock = _clock.add(const Duration(milliseconds: 60));
       final probe = await client.get<dynamic>('recovering');
       expect(probe.isSuccess, true);
       expect(breaker.stateFor('api.example.com'), CircuitState.closed);
@@ -418,6 +422,7 @@ void main() {
       final breaker = CircuitBreakerInterceptor(
         failureThreshold: 1,
         cooldown: const Duration(milliseconds: 30),
+        now: () => _clock,
       );
       final client = ApiClient(ApiClientConfig.test(
         baseUrl: 'https://api.example.com',
@@ -431,12 +436,12 @@ void main() {
 
       await client.get<dynamic>('wedge');
       expect(breaker.stateFor('api.example.com'), CircuitState.open);
-      await Future<void>.delayed(const Duration(milliseconds: 60));
+      _clock = _clock.add(const Duration(milliseconds: 60));
       await client.get<dynamic>('wedge'); // probe and its retries fail
       expect(breaker.stateFor('api.example.com'), CircuitState.open);
 
       reachable = true;
-      await Future<void>.delayed(const Duration(milliseconds: 60));
+      _clock = _clock.add(const Duration(milliseconds: 60));
       final res = await client.get<dynamic>('wedge');
       expect(res.isSuccess, isTrue);
       expect(breaker.stateFor('api.example.com'), CircuitState.closed);
@@ -455,6 +460,7 @@ void main() {
       final breaker = CircuitBreakerInterceptor(
         failureThreshold: 1,
         cooldown: const Duration(milliseconds: 30),
+        now: () => _clock,
         onStateChange: (_, s) => states.add(s),
       );
       final client = ApiClient(ApiClientConfig.test(
@@ -469,7 +475,7 @@ void main() {
 
       await client.get<dynamic>('probe'); // trips open after its retries
       expect(breaker.stateFor('api.example.com'), CircuitState.open);
-      await Future<void>.delayed(const Duration(milliseconds: 60));
+      _clock = _clock.add(const Duration(milliseconds: 60));
       calls = 0;
       sentHeaders.clear();
 
@@ -492,6 +498,7 @@ void main() {
       final breaker = CircuitBreakerInterceptor(
         failureThreshold: 1,
         cooldown: const Duration(milliseconds: 30),
+        now: () => _clock,
       );
       InterceptedRequest req([Map<String, String>? h]) => InterceptedRequest(
             method: 'GET',
@@ -501,7 +508,7 @@ void main() {
           );
 
       await breaker.onError(req(), const NetworkError('down'));
-      await Future<void>.delayed(const Duration(milliseconds: 60));
+      _clock = _clock.add(const Duration(milliseconds: 60));
       final probe = req();
       expect(await breaker.onRequest(probe), isA<ProceedResult>());
       expect(breaker.stateFor('api.example.com'), CircuitState.halfOpen);
@@ -513,6 +520,138 @@ void main() {
       }
       // The real probe's retry (a copy carrying its token) still goes through.
       expect(await breaker.onRequest(probe.copy()), isA<ProceedResult>());
+    });
+
+    // Only the admitted probe's outcome may move a circuit that is not
+    // closed; a request admitted earlier that finishes late is stale.
+    test('late outcomes of earlier requests do not move an open circuit',
+        () async {
+      final states = <CircuitState>[];
+      final breaker = CircuitBreakerInterceptor(
+        failureThreshold: 1,
+        cooldown: const Duration(seconds: 20),
+        now: () => _clock,
+        onStateChange: (_, s) => states.add(s),
+      );
+      InterceptedRequest req([Map<String, String>? h]) => InterceptedRequest(
+            method: 'GET',
+            endpoint: 'https://api.example.com/x',
+            headers: {...?h},
+            options: const RequestOptions(),
+          );
+      AdapterResponse status(int code) => AdapterResponse(
+          statusCode: code, headers: const {}, bodyBytes: Uint8List(0));
+
+      final straggler = req();
+      expect(await breaker.onRequest(straggler), isA<ProceedResult>());
+      await breaker.onError(req(), const NetworkError('down')); // trips open
+
+      // Admitted while closed, answers 200 after the circuit opened.
+      await breaker.onResponse(straggler, status(200));
+      expect(breaker.stateFor('api.example.com'), CircuitState.open);
+
+      _clock = _clock.add(const Duration(seconds: 21));
+      final probe = req();
+      expect(await breaker.onRequest(probe), isA<ProceedResult>());
+
+      // Stale failures (no token, or a forged one) do not reopen it.
+      await breaker.onError(straggler, const NetworkError('late'));
+      await breaker.onResponse(
+          req({'x-fac-circuit-probe': 'forged'}), status(503));
+      expect(breaker.stateFor('api.example.com'), CircuitState.halfOpen);
+
+      await breaker.onResponse(probe, status(200));
+      expect(breaker.stateFor('api.example.com'), CircuitState.closed);
+      expect(states,
+          [CircuitState.open, CircuitState.halfOpen, CircuitState.closed]);
+    });
+
+    group('probe outcomes', () {
+      InterceptedRequest req() => InterceptedRequest(
+            method: 'GET',
+            endpoint: 'https://api.example.com/x',
+            headers: {},
+            options: const RequestOptions(),
+          );
+      AdapterResponse status(int code, [Map<String, String>? h]) =>
+          AdapterResponse(
+              statusCode: code,
+              headers: h ?? const {},
+              bodyBytes: Uint8List(0));
+      Future<CircuitBreakerInterceptor> halfOpen() async {
+        final breaker = CircuitBreakerInterceptor(
+            failureThreshold: 1,
+            cooldown: const Duration(seconds: 10),
+            now: () => _clock);
+        await breaker.onError(req(), const NetworkError('down'));
+        _clock = _clock.add(const Duration(seconds: 11));
+        return breaker;
+      }
+
+      test('a slow probe replaced after its lease can still close it',
+          () async {
+        final breaker = await halfOpen();
+        final slow = req();
+        expect(await breaker.onRequest(slow), isA<ProceedResult>());
+        _clock = _clock.add(const Duration(seconds: 11));
+        expect(await breaker.onRequest(req()), isA<ProceedResult>(),
+            reason: 'lease ran out: a replacement probe is admitted');
+        await breaker.onResponse(slow, status(200)); // the old probe answers
+        expect(breaker.stateFor('api.example.com'), CircuitState.closed);
+      });
+
+      test('a replaced probe failing late does not cut short the current one',
+          () async {
+        final breaker = await halfOpen();
+        final old = req();
+        await breaker.onRequest(old);
+        _clock = _clock.add(const Duration(seconds: 11));
+        final current = req();
+        await breaker.onRequest(current);
+        await breaker.onError(old, const NetworkError('late'));
+        expect(breaker.stateFor('api.example.com'), CircuitState.halfOpen);
+        expect(await breaker.onRequest(current.copy()), isA<ProceedResult>(),
+            reason: "the current probe's retry still gets through");
+        await breaker.onError(current, const NetworkError('down'));
+        expect(breaker.stateFor('api.example.com'), CircuitState.open);
+      });
+
+      test('responses the cache served locally do not decide the circuit',
+          () async {
+        final breaker = await halfOpen();
+        final probe = req();
+        await breaker.onRequest(probe);
+        await breaker.onResponse(
+            probe, status(200, {'x-fac-cache-hit': 'hit'}));
+        await breaker.onResponse(
+            probe, status(504, {'x-fac-cache-hit': 'miss'}));
+        expect(breaker.stateFor('api.example.com'), CircuitState.halfOpen);
+        await breaker.onResponse(probe, status(200));
+        expect(breaker.stateFor('api.example.com'), CircuitState.closed);
+      });
+    });
+
+    test('admitting a probe replaces a caller-supplied mixed-case token',
+        () async {
+      final breaker = CircuitBreakerInterceptor(
+        failureThreshold: 1,
+        cooldown: const Duration(seconds: 1),
+        now: () => _clock,
+      );
+      InterceptedRequest req([Map<String, String>? h]) => InterceptedRequest(
+            method: 'GET',
+            endpoint: 'https://api.example.com/x',
+            headers: {...?h},
+            options: const RequestOptions(),
+          );
+      await breaker.onError(req(), const NetworkError('down'));
+      _clock = _clock.add(const Duration(seconds: 2));
+      final probe = req({'X-Fac-Circuit-Probe': 'abc'});
+      await breaker.onRequest(probe);
+      final keys = probe.headers.keys
+          .where((k) => k.toLowerCase() == 'x-fac-circuit-probe');
+      expect(keys, ['x-fac-circuit-probe']);
+      expect(probe.headers['x-fac-circuit-probe'], isNot('abc'));
     });
   });
 
