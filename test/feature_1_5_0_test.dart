@@ -463,8 +463,7 @@ void main() {
         interceptors: [
           breaker,
           RetryInterceptor(
-              policy:
-                  RetryPolicy(baseDelay: Duration.zero, useJitter: false)),
+              policy: RetryPolicy(baseDelay: Duration.zero, useJitter: false)),
         ],
       ));
 
@@ -486,6 +485,34 @@ void main() {
               .where((k) => k.toLowerCase().startsWith('x-fac-')),
           isEmpty,
           reason: 'the probe token is internal');
+    });
+
+    test('a forged probe token does not bypass the half-open hold-back',
+        () async {
+      final breaker = CircuitBreakerInterceptor(
+        failureThreshold: 1,
+        cooldown: const Duration(milliseconds: 30),
+      );
+      InterceptedRequest req([Map<String, String>? h]) => InterceptedRequest(
+            method: 'GET',
+            endpoint: 'https://api.example.com/x',
+            headers: {...?h},
+            options: const RequestOptions(),
+          );
+
+      await breaker.onError(req(), const NetworkError('down'));
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      final probe = req();
+      expect(await breaker.onRequest(probe), isA<ProceedResult>());
+      expect(breaker.stateFor('api.example.com'), CircuitState.halfOpen);
+
+      for (final guess in ['', '0', '1', '2', '3']) {
+        expect(await breaker.onRequest(req({'X-FAC-Circuit-Probe': guess})),
+            isA<RejectResult>(),
+            reason: 'guess "$guess" must be held back');
+      }
+      // The real probe's retry (a copy carrying its token) still goes through.
+      expect(await breaker.onRequest(probe.copy()), isA<ProceedResult>());
     });
   });
 

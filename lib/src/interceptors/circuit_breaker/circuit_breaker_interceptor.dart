@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import '../../core/api_exception.dart';
 import '../../http/http_adapter.dart';
 import '../interceptor.dart';
@@ -70,7 +72,7 @@ class CircuitBreakerInterceptor extends Interceptor {
   /// Internal header carrying the admitted probe's token; stripped before
   /// transport (see `request_identity.dart`).
   static const _probeHeader = 'x-fac-circuit-probe';
-  int _probeSeq = 0;
+  static final _random = Random.secure();
 
   /// Rejections this breaker fabricated itself, so the chain's own onError pass
   /// over this interceptor does not count a fail-fast rejection as another
@@ -113,12 +115,12 @@ class CircuitBreakerInterceptor extends Interceptor {
   }
 
   /// Starts the probe's lease and tags [req] so its retries are recognised.
-  /// The token is a counter: a caller who forges it only skips the hold-back
-  /// for their own request.
+  /// The token is random so a caller-supplied header cannot guess its way past
+  /// the hold-back.
   InterceptorResult _admitProbe(InterceptedRequest req, _Circuit circuit) {
     circuit
       ..reopenAt = DateTime.now().add(cooldown)
-      ..probe = '${++_probeSeq}';
+      ..probe = _random.nextInt(0xFFFFFFFF).toRadixString(36);
     req.headers[_probeHeader] = circuit.probe!;
     return ProceedResult(req);
   }
