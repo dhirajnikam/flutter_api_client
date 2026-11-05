@@ -12,12 +12,16 @@ enum ReplayOutcome {
   /// Replayed successfully and dropped from the queue.
   succeeded,
 
-  /// Failed transiently and put back for a later pass.
+  /// Failed transiently and put back for a later pass. A failure that never
+  /// sent the request (`NetworkError.sent == false`) does not count against
+  /// `maxAttempts`.
   reEnqueued,
 
-  /// Dropped without success — either the server rejected it (non-transient) or
-  /// it exhausted `maxAttempts`. This is the terminal failure an optimistic
-  /// layer should roll back on.
+  /// Dropped without success — the server rejected it (non-transient), it
+  /// exhausted `maxAttempts`, or it is an `atMostOnce` request whose transient
+  /// failure was ambiguous (it may have reached the server, so it is not
+  /// resent). This is the terminal failure an optimistic layer should roll back
+  /// on.
   deadLettered,
 }
 
@@ -34,11 +38,13 @@ class OfflineReplayReport {
   final int succeeded;
 
   /// Requests that failed transiently (network/timeout) and were put back.
+  /// Requests rejected before being sent (e.g. by an open circuit) are counted
+  /// here too, without using up an attempt.
   final int reEnqueued;
 
-  /// Requests dropped without success: either a non-transient failure
-  /// (the server was reached and rejected them) or they exhausted
-  /// `maxAttempts`.
+  /// Requests dropped without success: a non-transient failure (the server was
+  /// reached and rejected them), requests that exhausted `maxAttempts`, or
+  /// `atMostOnce` requests whose transient failure was ambiguous.
   final int deadLettered;
 
   /// Total requests processed in the pass.
@@ -67,7 +73,11 @@ class OfflineReplayReport {
 ///   replay targets the same URL the original request did.
 /// - A request that fails transiently is re-enqueued with an incremented
 ///   attempt count; once it reaches [maxAttempts] it is dead-lettered instead
-///   of looping forever (poison-message protection).
+///   of looping forever (poison-message protection). A failure that provably
+///   never sent the request (`NetworkError.sent == false`, e.g. an open circuit)
+///   is re-enqueued without consuming an attempt, in either mode. Set
+///   [neverSentMaxAge] to dead-letter such a request once it has been queued
+///   that long, so a host that stays down cannot hold it forever.
 /// - A request that reaches the server and is rejected (non network/timeout)
 ///   is dropped — replaying it would not help.
 /// - Overlapping [replay] calls share one pass: a second call while a pass is
@@ -91,7 +101,11 @@ class OfflineQueueReplayer {
     this.onDeadLetter,
     this.compare,
     this.onOutcome,
-  });
+    this.neverSentMaxAge,
+  }) : assert(
+          neverSentMaxAge == null || neverSentMaxAge >= Duration.zero,
+          'neverSentMaxAge must not be negative',
+        );
 
   /// Queue to drain and replay from.
   final OfflineQueueStore store;
@@ -101,6 +115,14 @@ class OfflineQueueReplayer {
 
   /// Maximum total replay attempts before a request is dead-lettered.
   final int maxAttempts;
+
+  /// How long (since [QueuedRequest.createdAt]) a request that keeps failing
+  /// without being sent (`NetworkError.sent == false`) stays queued before it
+  /// is dead-lettered. Such failures do not consume [maxAttempts], so without
+  /// this a write to a host whose circuit keeps reopening is kept forever.
+  /// `null` (the default) keeps it until a request gets through;
+  /// [Duration.zero] dead-letters it on its first never-sent failure.
+  final Duration? neverSentMaxAge;
 
   /// Called when a request is dropped without success, with the request and
   /// the error from its final attempt (`null` when the failure produced no
@@ -147,8 +169,8 @@ class OfflineQueueReplayer {
     for (final request in pending) {
       // at-most-once: drop the record before the send so an interruption
       // between here and the response loses the request instead of resending
-      // it. A transient failure below re-enqueues it, so the retry path is
-      // unchanged — only the crash window differs.
+      // it. A failure that provably never sent it re-enqueues it below; any
+      // other transient failure dead-letters it.
       if (request.replaySafety == ReplaySafety.atMostOnce) {
         try {
           await _detach(request);
@@ -190,14 +212,23 @@ class OfflineQueueReplayer {
         await onOutcome?.call(request, ReplayOutcome.deadLettered);
         continue;
       }
-      final next = request.withAttempt();
-      // A transient failure is exactly the ambiguous case: the request may
-      // have reached the server before the connection dropped. Retrying an
-      // atMostOnce request would risk the duplicate the mode exists to
-      // prevent, so it is dead-lettered instead — the caller is told the write
-      // was abandoned rather than it being silently resent or silently lost.
-      if (request.replaySafety == ReplaySafety.atMostOnce ||
-          next.attempts >= maxAttempts) {
+      // A failure that definitely never left the device (e.g. an open circuit
+      // breaker) is safe to retry in either mode and says nothing about the
+      // request itself, so it does not consume an attempt.
+      final neverSent = error is NetworkError && !error.sent;
+      final next = neverSent ? request : request.withAttempt();
+      final maxAge = neverSentMaxAge;
+      final expired = neverSent &&
+          maxAge != null &&
+          DateTime.now().difference(request.createdAt) >= maxAge;
+      // Any other transient failure is ambiguous: the request may have reached
+      // the server before the connection dropped. Retrying an atMostOnce
+      // request would risk the duplicate the mode exists to prevent, so it is
+      // dead-lettered instead — the caller is told the write was abandoned
+      // rather than it being silently resent or silently lost.
+      if ((request.replaySafety == ReplaySafety.atMostOnce && !neverSent) ||
+          next.attempts >= maxAttempts ||
+          expired) {
         deadLettered++;
         await _settle(request, keep: false);
         _notifyDeadLetter(request, error);

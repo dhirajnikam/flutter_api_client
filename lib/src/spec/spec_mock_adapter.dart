@@ -164,8 +164,8 @@ class SpecMockAdapter implements HttpAdapter {
       if (ep.method != upper) continue;
       final pattern = ep.pathPattern;
       // Also allow the spec base path prefix to be absent.
-      final matches = pattern.hasMatch(path) ||
-          (hasStripped && pattern.hasMatch(stripped));
+      final matches =
+          pattern.hasMatch(path) || (hasStripped && pattern.hasMatch(stripped));
       if (!matches) continue;
       final placeholders = ep.pathParamNames.length;
       if (best == null || placeholders < bestPlaceholders) {

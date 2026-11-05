@@ -1,3 +1,76 @@
+## Unreleased
+
+**Type**: Minor (additive field and parameters, replay and breaker behaviour fixes)  
+**Breaking Changes**: None
+
+### Added
+
+* **`NetworkError.sent`** — `bool`, default `true`. `false` means the request
+  was definitely not transmitted, so retrying cannot duplicate it.
+  `CircuitBreakerInterceptor`'s fail-fast rejections set it to `false`. The
+  default `DefaultHttpAdapter` cannot yet tell connect-phase failures apart, so
+  its errors stay `true`; a custom adapter may throw `sent: false`.
+* **`OfflineQueueReplayer(neverSentMaxAge:)`** (also on
+  `OfflineMutations.buildReplayer`) — optional. A request that keeps failing
+  with `sent: false` is dead-lettered (and its optimistic rollback runs) once it
+  has been queued this long. Default `null` keeps it until a request gets
+  through.
+* **`CircuitBreakerInterceptor(now:)`** — optional clock (default: monotonic),
+  so cooldowns can be tested without sleeping.
+
+### Changed
+
+* **Never-sent failures no longer dead-letter `atMostOnce` writes.** A replay
+  that failed with `sent: false` re-enqueues the request in either mode without
+  consuming an attempt. Previously an `atMostOnce` write rejected by an open
+  circuit was dead-lettered and its `OfflineMutations` rollback ran; it now
+  stays queued. The cost is that a write to a host whose circuit keeps reopening
+  stays queued until a request gets through, unless `neverSentMaxAge` is set.
+* **Retries keep the ambiguity.** If an earlier attempt may have reached the
+  server and a later one is rejected before sending (for example, the breaker
+  opens between attempts), `RetryInterceptor` reports the final error with
+  `sent: true`.
+
+### Fixed
+
+* **`CircuitBreakerInterceptor` no longer counts its own re-wrapped rejection
+  as an origin failure.** With the documented `[breaker, retry]` order, a
+  fail-fast rejection that `RetryInterceptor` re-wrapped as `sent: true` was
+  recorded as a failure, which could reopen a half-open circuit while its probe
+  was still in flight. Its fabricated rejections are also now tracked weakly,
+  so ones that are retried no longer pile up in memory while the circuit is open.
+* **A half-open circuit can no longer get stuck.** With `[breaker, retry]`, a
+  failed probe was retried, each retry was held back as "probe in flight", and
+  the probe's outcome was never recorded — the host stayed rejected forever,
+  even after it recovered. A probe whose outcome is not recorded within
+  `cooldown` (for example, cancelled) is now replaced by a fresh one.
+* **A failed half-open probe now reopens the circuit.** With `[breaker, retry]`
+  the probe's own retries were rejected by the breaker, so a probe that failed
+  left the circuit reported as `halfOpen` and `onStateChange` never emitted
+  `open`. The probe now carries an internal token: its retries reach the
+  origin, and its final failure reopens the circuit for another `cooldown`.
+  The token is random, so a caller-supplied header cannot guess past the
+  hold-back.
+* **Only the probe's outcome moves an open or half-open circuit.** A request
+  admitted while the circuit was closed that answered late could close an open
+  circuit (a late 200) or reopen a half-open one (a late failure) without any
+  probe. Late outcomes from those requests are now ignored, as in resilience4j
+  and Polly. A probe that was replaced after its lease ran out still counts if
+  it finishes, so a slow but healthy origin can close the circuit.
+* **Cache-served responses no longer move the breaker.** A response the cache
+  served locally (a hit, or the synthetic 504 of a `cacheOnly` miss) could
+  close an open circuit or reopen it without contacting the origin; it is now
+  ignored.
+* **Cooldowns use a monotonic clock by default**, so a system clock change no
+  longer stretches or skips one.
+* **Strict internal retry-attempt parsing.** A malformed `x-fac-retry-attempt`
+  value (for example `1s1` or `-3`) could inflate or extend the retry count; it
+  now reads as a first, unsent attempt.
+* **A re-wrapped retry error keeps its transport cause one hop away.** When
+  `RetryInterceptor` marks a final never-sent error as `sent: true`,
+  `error.cause` is now the original cause (for example a socket exception)
+  rather than the inner `NetworkError`.
+
 ## 1.7.0
 
 **Release Date**: 2026-08-18  

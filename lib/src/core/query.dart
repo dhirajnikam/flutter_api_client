@@ -124,8 +124,7 @@ Uri buildUri({
       ? baseUrl.substring(0, baseUrl.length - 1)
       : baseUrl;
   final ep = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint;
-  final qs =
-      queryParameters == null ? '' : encoder.encode(queryParameters);
+  final qs = queryParameters == null ? '' : encoder.encode(queryParameters);
   if (qs.isEmpty) return Uri.parse('$base/$ep');
 
   // Choose the correct separator when merging `qs` onto an endpoint that may

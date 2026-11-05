@@ -68,8 +68,9 @@ void main() {
       ]);
       expect(mock.received, hasLength(1));
       expect(mock.received.first.method, 'QUERY');
-      final sent = jsonDecode(utf8.decode(mock.received.first.body as List<int>))
-          as Map<String, dynamic>;
+      final sent =
+          jsonDecode(utf8.decode(mock.received.first.body as List<int>))
+              as Map<String, dynamic>;
       expect(sent, {'filter': 'ada'});
     });
   });

@@ -20,7 +20,17 @@ sealed class ApiException implements Exception {
 
 /// Low level I/O / DNS / socket failure.
 final class NetworkError extends ApiException {
-  const NetworkError(super.message, {super.cause, super.stackTrace});
+  const NetworkError(
+    super.message, {
+    super.cause,
+    super.stackTrace,
+    this.sent = true,
+  });
+
+  /// Whether the request may have been transmitted. `false` means it
+  /// definitely was not (e.g. rejected locally before any I/O), so retrying
+  /// cannot duplicate it. Defaults to `true`: an I/O failure is ambiguous.
+  final bool sent;
 }
 
 /// Request exceeded its [Duration] timeout.

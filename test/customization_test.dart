@@ -143,8 +143,7 @@ void main() {
 
     test('custom response JSON codec is used', () async {
       final mock = MockAdapter()
-        ..on('GET', RegExp(r'/x$'),
-            statusCode: 200, body: {'n': 1});
+        ..on('GET', RegExp(r'/x$'), statusCode: 200, body: {'n': 1});
       var called = false;
       final client = ApiClient(
         ApiClientConfig(
@@ -203,8 +202,7 @@ void main() {
         ApiClientConfig(
           baseUrl: 'https://api.example.com',
           adapter: mock,
-          queryEncoder:
-              const QueryEncoder(listFormat: QueryListFormat.comma),
+          queryEncoder: const QueryEncoder(listFormat: QueryListFormat.comma),
         ),
       );
       await client.get<dynamic>('x',

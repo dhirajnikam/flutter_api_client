@@ -115,8 +115,8 @@ void main() {
       );
       spec.endpoint('DELETE /sessions/current');
       final json = OpenApiGenerator(spec).toJson();
-      final op = ((json['paths'] as Map)['/sessions/current']
-          as Map)['delete'] as Map<String, Object?>;
+      final op = ((json['paths'] as Map)['/sessions/current'] as Map)['delete']
+          as Map<String, Object?>;
       final responses = op['responses'] as Map;
       expect(responses, isNotEmpty);
       expect(responses['204'], {'description': 'No Content'});
@@ -227,8 +227,7 @@ void main() {
       expect(res.statusCode, 422);
     });
 
-    test('POST without a body still passes when nothing is required',
-        () async {
+    test('POST without a body still passes when nothing is required', () async {
       final spec = ApiSpec(
         title: 'Validate',
         version: '1.0.0',
@@ -275,8 +274,7 @@ void main() {
   });
 
   group('TestGenerator (findings 9, 10, 11)', () {
-    test('schema-validation test goes through the verb call handling',
-        () {
+    test('schema-validation test goes through the verb call handling', () {
       final spec = ApiSpec(
         title: 'Gen',
         version: '1.0.0',
@@ -302,8 +300,7 @@ void main() {
       );
     });
 
-    test('no schema-validation test for GET, or when nothing is required',
-        () {
+    test('no schema-validation test for GET, or when nothing is required', () {
       final spec = ApiSpec(
         title: 'Gen',
         version: '1.0.0',
@@ -351,8 +348,7 @@ void main() {
       expect(out, contains("await client.query<dynamic>('reports',"));
     });
 
-    test('escapes quotes in group names, descriptions, paths and baseUrl',
-        () {
+    test('escapes quotes in group names, descriptions, paths and baseUrl', () {
       final spec = ApiSpec(
         title: 'Gen',
         version: '1.0.0',

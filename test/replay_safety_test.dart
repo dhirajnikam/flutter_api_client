@@ -67,8 +67,8 @@ void main() {
 
     test('survives a JSON round trip', () {
       final json = _req('a', safety: ReplaySafety.atMostOnce).toJson();
-      expect(QueuedRequest.fromJson(json).replaySafety,
-          ReplaySafety.atMostOnce);
+      expect(
+          QueuedRequest.fromJson(json).replaySafety, ReplaySafety.atMostOnce);
     });
 
     test('records predating the field parse as atLeastOnce', () {
@@ -133,8 +133,7 @@ void main() {
               'the send settles');
     });
 
-    test('a crash mid-send leaves NO atMostOnce record to duplicate',
-        () async {
+    test('a crash mid-send leaves NO atMostOnce record to duplicate', () async {
       final store = InMemoryOfflineQueueStore();
       await store.enqueue(_req('create', safety: ReplaySafety.atMostOnce));
       final adapter = _CrashingAdapter();

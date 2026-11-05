@@ -8,6 +8,7 @@ const Set<String> _internalRequestHeaders = {
   'x-fac-auth-token-fp',
   'x-fac-retry-attempt',
   'x-fac-offline-replay',
+  'x-fac-circuit-probe',
 };
 
 /// Whether [name] is one of the `x-fac-*` headers the interceptors use

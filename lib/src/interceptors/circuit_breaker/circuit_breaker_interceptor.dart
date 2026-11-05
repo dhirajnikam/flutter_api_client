@@ -1,6 +1,9 @@
+import 'dart:math';
+
 import '../../core/api_exception.dart';
 import '../../http/http_adapter.dart';
 import '../interceptor.dart';
+import '../internal_headers.dart';
 
 /// State of one circuit inside [CircuitBreakerInterceptor].
 enum CircuitState {
@@ -11,7 +14,8 @@ enum CircuitState {
   open,
 
   /// Cooldown elapsed; a single probe request is allowed through to test
-  /// whether the origin recovered.
+  /// whether the origin recovered. If its outcome is not recorded within the
+  /// cooldown (e.g. cancelled), a fresh probe replaces it.
   halfOpen,
 }
 
@@ -24,10 +28,20 @@ enum CircuitState {
 /// `open`s and every request to that host is rejected immediately with a
 /// [NetworkError] for [cooldown]. After the cooldown one probe request is
 /// allowed through (`halfOpen`): success closes the circuit, failure reopens
-/// it for another cooldown.
+/// it for another cooldown. Only probes move an open or half-open circuit: a
+/// request admitted before it opened that finishes late is ignored, as is any
+/// response the cache marked as its own (including a 304 it revalidated, so
+/// such a probe leaves the circuit half-open until the next probe). A probe
+/// whose outcome goes unrecorded for a whole cooldown (e.g. slow, or
+/// cancelled) is replaced by a fresh one; if a replaced probe (one of the last
+/// 16) later succeeds it still closes the circuit, so a slow but healthy
+/// origin can recover, but its failure is ignored.
 ///
 /// Place it BEFORE `RetryInterceptor` in the interceptor list so retries of a
-/// tripped host are also cut short.
+/// tripped host are also cut short. In that order the breaker sees only each
+/// call's final outcome, so [failureThreshold] counts failed calls, not
+/// individual retry attempts. In that order the half-open probe's own retries
+/// are let through, and its final outcome closes or reopens the circuit.
 ///
 /// ```dart
 /// interceptors: [
@@ -45,8 +59,21 @@ class CircuitBreakerInterceptor extends Interceptor {
     this.failureThreshold = 5,
     this.cooldown = const Duration(seconds: 30),
     this.onStateChange,
-  })  : assert(failureThreshold > 0, 'failureThreshold must be positive'),
+    DateTime Function()? now,
+  })  : _now = now ?? _monotonicNow(),
+        assert(failureThreshold > 0, 'failureThreshold must be positive'),
         assert(cooldown > Duration.zero, 'cooldown must be positive');
+
+  /// Clock for cooldowns; injectable so tests need not sleep.
+  final DateTime Function() _now;
+
+  /// Wall-clock start plus a [Stopwatch], so a system clock change cannot
+  /// stretch or skip a cooldown.
+  static DateTime Function() _monotonicNow() {
+    final start = DateTime.now();
+    final watch = Stopwatch()..start();
+    return () => start.add(watch.elapsed);
+  }
 
   /// Consecutive failures that trip a closed circuit open.
   final int failureThreshold;
@@ -60,10 +87,16 @@ class CircuitBreakerInterceptor extends Interceptor {
 
   final Map<String, _Circuit> _circuits = {};
 
-  /// Rejections this breaker fabricated itself. Tracked by identity so the
-  /// chain's own onError pass over this interceptor does not count a
-  /// fail-fast rejection as another origin failure.
-  final Set<ApiException> _synthetic = {};
+  /// Internal header carrying the admitted probe's token; stripped before
+  /// transport (see `request_identity.dart`).
+  static const _probeHeader = 'x-fac-circuit-probe';
+  static final _random = Random.secure();
+
+  /// Rejections this breaker fabricated itself, so the chain's own onError pass
+  /// over this interceptor does not count a fail-fast rejection as another
+  /// origin failure. Weak: a rejection retried by an interceptor below this one
+  /// never comes back here, and must not be held forever.
+  final Expando<bool> _synthetic = Expando();
 
   /// Current state of the circuit for [host] (as produced by the request's
   /// resolved base URL). Reads do not advance the open→halfOpen transition.
@@ -77,15 +110,48 @@ class CircuitBreakerInterceptor extends Interceptor {
       case CircuitState.closed:
         return ProceedResult(req);
       case CircuitState.halfOpen:
-        // One probe is already in flight; hold the rest back.
-        return _rejectFast(req);
+        // The probe's own retries (restarted by an interceptor below this one)
+        // must reach the origin, or its failure is never recorded.
+        if (_isProbe(req, circuit)) return ProceedResult(req);
+        // One probe is already in flight; hold the rest back. Its outcome can
+        // go unrecorded (e.g. cancelled), so after another cooldown let a new
+        // probe through instead of staying half-open forever.
+        if (_now().isBefore(circuit.reopenAt!)) return _rejectFast(req);
+        return _admitProbe(req, circuit); // a fresh probe
       case CircuitState.open:
-        if (DateTime.now().isBefore(circuit.reopenAt!)) {
-          return _rejectFast(req);
-        }
+        if (_now().isBefore(circuit.reopenAt!)) return _rejectFast(req);
         _transition(_key(req), circuit, CircuitState.halfOpen);
-        return ProceedResult(req); // the probe
+        return _admitProbe(req, circuit); // the probe
     }
+  }
+
+  /// Whether [req] is the current probe (its retries may pass the hold-back).
+  bool _isProbe(InterceptedRequest req, _Circuit circuit) =>
+      circuit.probe != null &&
+      headerValue(req.headers, _probeHeader) == circuit.probe;
+
+  /// Whether [req] is any probe admitted since the circuit last closed. A probe
+  /// replaced after its lease ran out still reports a real origin outcome, so
+  /// a slow but healthy origin can close the circuit.
+  bool _isAnyProbe(InterceptedRequest req, _Circuit circuit) {
+    final token = headerValue(req.headers, _probeHeader);
+    return token != null && circuit.probes.contains(token);
+  }
+
+  /// Starts the probe's lease and tags [req] so its retries are recognised.
+  /// The token is random so a caller-supplied header cannot guess its way past
+  /// the hold-back.
+  InterceptorResult _admitProbe(InterceptedRequest req, _Circuit circuit) {
+    circuit
+      ..reopenAt = _now().add(cooldown)
+      ..probe = _random.nextInt(0xFFFFFFFF).toRadixString(36);
+    circuit.probes.add(circuit.probe!);
+    // Bounded: a probe older than this many leases is treated as stale.
+    if (circuit.probes.length > 16) circuit.probes.removeAt(0);
+    req.headers
+      ..removeWhere((k, _) => k.toLowerCase() == _probeHeader)
+      ..[_probeHeader] = circuit.probe!;
+    return ProceedResult(req);
   }
 
   @override
@@ -93,9 +159,14 @@ class CircuitBreakerInterceptor extends Interceptor {
     InterceptedRequest req,
     AdapterResponse res,
   ) async {
+    // A response the cache served locally (a hit, or the synthetic 504 of a
+    // cacheOnly miss) says nothing about the origin.
+    if (headerValue(res.headers, cacheHitHeader) != null) {
+      return ResolveResult(res);
+    }
     // 5xx counts as a failure (the origin is unhealthy); anything else —
     // including 4xx — proves the origin is up and resets the circuit.
-    _record(_key(req), failure: res.statusCode >= 500);
+    _record(req, failure: res.statusCode >= 500);
     return ResolveResult(res);
   }
 
@@ -104,9 +175,9 @@ class CircuitBreakerInterceptor extends Interceptor {
     InterceptedRequest req,
     ApiException error,
   ) async {
-    if (_synthetic.remove(error)) return RejectResult(error);
+    if (_isSynthetic(error)) return RejectResult(error);
     if (error is NetworkError || error is TimeoutError) {
-      _record(_key(req), failure: true);
+      _record(req, failure: true);
     }
     // CancelError and every other error type says nothing about origin
     // health; leave the circuit untouched.
@@ -117,30 +188,52 @@ class CircuitBreakerInterceptor extends Interceptor {
     final err = NetworkError(
       'Circuit breaker open for ${_key(req)}: failing fast '
       '(origin marked down after $failureThreshold consecutive failures).',
+      sent: false,
     );
-    _synthetic.add(err);
+    _synthetic[err] = true;
     return RejectResult(err);
   }
 
-  void _record(String key, {required bool failure}) {
+  /// Follows `cause`, since `RetryInterceptor` re-wraps a fail-fast rejection
+  /// (as `sent: true`) when an earlier attempt may have reached the server.
+  bool _isSynthetic(Object? error) {
+    for (var e = error; e is ApiException; e = e.cause) {
+      if (_synthetic[e] ?? false) return true;
+    }
+    return false;
+  }
+
+  void _record(InterceptedRequest req, {required bool failure}) {
+    final key = _key(req);
     final circuit = _circuits.putIfAbsent(key, () => _Circuit());
+    if (circuit.state != CircuitState.closed) {
+      // While open or half-open only probes count: a request admitted before
+      // the circuit opened that finishes late says nothing about it now.
+      if (!_isAnyProbe(req, circuit)) return;
+      if (!failure) {
+        circuit
+          ..consecutiveFailures = 0
+          ..reopenAt = null
+          ..probe = null
+          ..probes.clear();
+        _transition(key, circuit, CircuitState.closed);
+      } else if (circuit.state == CircuitState.halfOpen &&
+          _isProbe(req, circuit)) {
+        // Only the current probe's failure reopens it; a replaced probe that
+        // fails late must not cut short the one still in flight.
+        circuit
+          ..reopenAt = _now().add(cooldown)
+          ..probe = null;
+        _transition(key, circuit, CircuitState.open);
+      }
+      return;
+    }
     if (!failure) {
-      circuit
-        ..consecutiveFailures = 0
-        ..reopenAt = null;
-      _transition(key, circuit, CircuitState.closed);
+      circuit.consecutiveFailures = 0;
       return;
     }
-    if (circuit.state == CircuitState.halfOpen) {
-      // Probe failed: straight back to open for another cooldown.
-      circuit.reopenAt = DateTime.now().add(cooldown);
-      _transition(key, circuit, CircuitState.open);
-      return;
-    }
-    circuit.consecutiveFailures++;
-    if (circuit.state == CircuitState.closed &&
-        circuit.consecutiveFailures >= failureThreshold) {
-      circuit.reopenAt = DateTime.now().add(cooldown);
+    if (++circuit.consecutiveFailures >= failureThreshold) {
+      circuit.reopenAt = _now().add(cooldown);
       _transition(key, circuit, CircuitState.open);
     }
   }
@@ -175,4 +268,6 @@ class _Circuit {
   CircuitState state = CircuitState.closed;
   int consecutiveFailures = 0;
   DateTime? reopenAt;
+  String? probe; // token of the current half-open probe
+  final List<String> probes = []; // tokens admitted since the last close
 }

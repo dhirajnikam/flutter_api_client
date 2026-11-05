@@ -241,7 +241,8 @@ class OpenApiGenerator {
           buf.write(r'\r');
         default:
           if (code < 0x20 || code == 0x7F) {
-            buf.write('\\x${code.toRadixString(16).padLeft(2, '0').toUpperCase()}');
+            buf.write(
+                '\\x${code.toRadixString(16).padLeft(2, '0').toUpperCase()}');
           } else {
             buf.writeCharCode(code);
           }

@@ -24,7 +24,8 @@ class InterceptorChain {
   /// The interceptors this chain coordinates.
   final List<Interceptor> interceptors;
 
-  static const _depthExceeded = UnknownError('Interceptor retry depth exceeded');
+  static const _depthExceeded =
+      UnknownError('Interceptor retry depth exceeded');
 
   /// Runs [request] through the chain and [transport], returning the final
   /// response or throwing the final [ApiException].
