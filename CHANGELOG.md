@@ -36,7 +36,12 @@
   failed probe was retried, each retry was held back as "probe in flight", and
   the probe's outcome was never recorded — the host stayed rejected forever,
   even after it recovered. A probe whose outcome is not recorded within
-  `cooldown` (lost to retries, or cancelled) is now replaced by a fresh one.
+  `cooldown` (for example, cancelled) is now replaced by a fresh one.
+* **A failed half-open probe now reopens the circuit.** With `[breaker, retry]`
+  the probe's own retries were rejected by the breaker, so a probe that failed
+  left the circuit reported as `halfOpen` and `onStateChange` never emitted
+  `open`. The probe now carries an internal token: its retries reach the
+  origin, and its final failure reopens the circuit for another `cooldown`.
 
 ## 1.7.0
 

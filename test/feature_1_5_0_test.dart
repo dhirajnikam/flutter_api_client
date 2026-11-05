@@ -402,8 +402,8 @@ void main() {
     });
 
     // With [breaker, retry] a failed probe is retried before the breaker sees
-    // it, and the retries are held back as "probe in flight", so the probe's
-    // outcome is never recorded. The circuit must not stay half-open forever.
+    // it. The probe must still settle the circuit: open while down, closed
+    // once the origin recovers — never wedged half-open.
     test('a probe lost to retries does not wedge the circuit half-open',
         () async {
       var reachable = false;
@@ -432,13 +432,60 @@ void main() {
       await client.get<dynamic>('wedge');
       expect(breaker.stateFor('api.example.com'), CircuitState.open);
       await Future<void>.delayed(const Duration(milliseconds: 60));
-      await client.get<dynamic>('wedge'); // probe fails, retries held back
+      await client.get<dynamic>('wedge'); // probe and its retries fail
+      expect(breaker.stateFor('api.example.com'), CircuitState.open);
 
       reachable = true;
       await Future<void>.delayed(const Duration(milliseconds: 60));
       final res = await client.get<dynamic>('wedge');
       expect(res.isSuccess, isTrue);
       expect(breaker.stateFor('api.example.com'), CircuitState.closed);
+    });
+
+    test('a failed probe reopens the circuit under [breaker, retry]', () async {
+      var calls = 0;
+      final sentHeaders = <Map<String, String>>[];
+      final mock = MockAdapter();
+      mock.onRequest('GET', RegExp(r'/probe$'), (r) async {
+        calls++;
+        sentHeaders.add(r.headers);
+        throw const NetworkError('down');
+      });
+      final states = <CircuitState>[];
+      final breaker = CircuitBreakerInterceptor(
+        failureThreshold: 1,
+        cooldown: const Duration(milliseconds: 30),
+        onStateChange: (_, s) => states.add(s),
+      );
+      final client = ApiClient(ApiClientConfig.test(
+        baseUrl: 'https://api.example.com',
+        adapter: mock,
+        interceptors: [
+          breaker,
+          RetryInterceptor(
+              policy:
+                  RetryPolicy(baseDelay: Duration.zero, useJitter: false)),
+        ],
+      ));
+
+      await client.get<dynamic>('probe'); // trips open after its retries
+      expect(breaker.stateFor('api.example.com'), CircuitState.open);
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      calls = 0;
+      sentHeaders.clear();
+
+      final res = await client.get<dynamic>('probe');
+      expect(res.isFailure, isTrue);
+      expect(calls, 3, reason: "the probe's retries reach the transport");
+      expect(breaker.stateFor('api.example.com'), CircuitState.open);
+      expect(states,
+          [CircuitState.open, CircuitState.halfOpen, CircuitState.open]);
+      expect(
+          sentHeaders
+              .expand((h) => h.keys)
+              .where((k) => k.toLowerCase().startsWith('x-fac-')),
+          isEmpty,
+          reason: 'the probe token is internal');
     });
   });
 

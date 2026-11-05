@@ -1,6 +1,7 @@
 import '../../core/api_exception.dart';
 import '../../http/http_adapter.dart';
 import '../interceptor.dart';
+import '../internal_headers.dart';
 
 /// State of one circuit inside [CircuitBreakerInterceptor].
 enum CircuitState {
@@ -12,7 +13,7 @@ enum CircuitState {
 
   /// Cooldown elapsed; a single probe request is allowed through to test
   /// whether the origin recovered. If its outcome is not recorded within the
-  /// cooldown (cancelled, or lost to retries), a fresh probe replaces it.
+  /// cooldown (e.g. cancelled), a fresh probe replaces it.
   halfOpen,
 }
 
@@ -32,7 +33,8 @@ enum CircuitState {
 /// Place it BEFORE `RetryInterceptor` in the interceptor list so retries of a
 /// tripped host are also cut short. In that order the breaker sees only each
 /// call's final outcome, so [failureThreshold] counts failed calls, not
-/// individual retry attempts.
+/// individual retry attempts. The half-open probe's own retries are let
+/// through, and its final outcome closes or reopens the circuit.
 ///
 /// ```dart
 /// interceptors: [
@@ -65,6 +67,11 @@ class CircuitBreakerInterceptor extends Interceptor {
 
   final Map<String, _Circuit> _circuits = {};
 
+  /// Internal header carrying the admitted probe's token; stripped before
+  /// transport (see `request_identity.dart`).
+  static const _probeHeader = 'x-fac-circuit-probe';
+  int _probeSeq = 0;
+
   /// Rejections this breaker fabricated itself, so the chain's own onError pass
   /// over this interceptor does not count a fail-fast rejection as another
   /// origin failure. Weak: a rejection retried by an interceptor below this one
@@ -83,23 +90,37 @@ class CircuitBreakerInterceptor extends Interceptor {
       case CircuitState.closed:
         return ProceedResult(req);
       case CircuitState.halfOpen:
+        // The probe's own retries (restarted by an interceptor below this one)
+        // must reach the origin, or its failure is never recorded.
+        if (circuit.probe != null &&
+            headerValue(req.headers, _probeHeader) == circuit.probe) {
+          return ProceedResult(req);
+        }
         // One probe is already in flight; hold the rest back. Its outcome can
-        // go unrecorded (cancelled, or retried by an interceptor below this one
-        // and then held back here), so after another cooldown let a new probe
-        // through instead of staying half-open forever.
+        // go unrecorded (e.g. cancelled), so after another cooldown let a new
+        // probe through instead of staying half-open forever.
         if (DateTime.now().isBefore(circuit.reopenAt!)) {
           return _rejectFast(req);
         }
-        circuit.reopenAt = DateTime.now().add(cooldown);
-        return ProceedResult(req); // a fresh probe
+        return _admitProbe(req, circuit); // a fresh probe
       case CircuitState.open:
         if (DateTime.now().isBefore(circuit.reopenAt!)) {
           return _rejectFast(req);
         }
-        circuit.reopenAt = DateTime.now().add(cooldown); // the probe's lease
         _transition(_key(req), circuit, CircuitState.halfOpen);
-        return ProceedResult(req); // the probe
+        return _admitProbe(req, circuit); // the probe
     }
+  }
+
+  /// Starts the probe's lease and tags [req] so its retries are recognised.
+  /// The token is a counter: a caller who forges it only skips the hold-back
+  /// for their own request.
+  InterceptorResult _admitProbe(InterceptedRequest req, _Circuit circuit) {
+    circuit
+      ..reopenAt = DateTime.now().add(cooldown)
+      ..probe = '${++_probeSeq}';
+    req.headers[_probeHeader] = circuit.probe!;
+    return ProceedResult(req);
   }
 
   @override
@@ -151,7 +172,8 @@ class CircuitBreakerInterceptor extends Interceptor {
     if (!failure) {
       circuit
         ..consecutiveFailures = 0
-        ..reopenAt = null;
+        ..reopenAt = null
+        ..probe = null;
       _transition(key, circuit, CircuitState.closed);
       return;
     }
@@ -199,4 +221,5 @@ class _Circuit {
   CircuitState state = CircuitState.closed;
   int consecutiveFailures = 0;
   DateTime? reopenAt;
+  String? probe; // token of the admitted half-open probe
 }
