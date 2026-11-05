@@ -18,7 +18,9 @@ void main() {
               'note': r'pa$word',
               'path': r'C:\tmp',
             }),
-            responses: [ResponseExample.created({'id': 1})],
+            responses: [
+              ResponseExample.created({'id': 1})
+            ],
           );
         });
 

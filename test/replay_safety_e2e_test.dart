@@ -347,8 +347,7 @@ void main() {
 
         // And it is still honoured on the replay after the restart.
         server.online = true;
-        final replayer =
-            OfflineQueueReplayer(store: reopened, client: client);
+        final replayer = OfflineQueueReplayer(store: reopened, client: client);
         final report = await replayer.replay();
         expect(report.succeeded, 2);
         expect(server.accepted, hasLength(2));
@@ -442,8 +441,7 @@ void main() {
           interceptors: [
             CacheInterceptor(
               store: MemoryCacheStore(),
-              defaultPolicy:
-                  CachePolicy.staleWhileRevalidate(Duration.zero),
+              defaultPolicy: CachePolicy.staleWhileRevalidate(Duration.zero),
             ),
           ],
         ),

@@ -130,8 +130,7 @@ void main() {
       final mock = MockAdapter()
         ..on('POST', RegExp(r'/todos$'), statusCode: 201, body: {'id': 't1'});
       final store = InMemoryOfflineQueueStore();
-      final mutations =
-          OfflineMutations(client: _client(mock), store: store);
+      final mutations = OfflineMutations(client: _client(mock), store: store);
 
       final result = await mutations.mutate<dynamic>(
         'POST',
@@ -154,8 +153,7 @@ void main() {
         throw const NetworkError('offline');
       });
       final store = InMemoryOfflineQueueStore();
-      final mutations =
-          OfflineMutations(client: _client(mock), store: store);
+      final mutations = OfflineMutations(client: _client(mock), store: store);
 
       final result = await mutations.mutate<dynamic>(
         'POST',
@@ -181,8 +179,7 @@ void main() {
       final mock = MockAdapter()
         ..on('POST', RegExp(r'/todos$'), statusCode: 422, body: {'e': 'bad'});
       final store = InMemoryOfflineQueueStore();
-      final mutations =
-          OfflineMutations(client: _client(mock), store: store);
+      final mutations = OfflineMutations(client: _client(mock), store: store);
 
       final result = await mutations.mutate<dynamic>(
         'POST',
@@ -247,8 +244,7 @@ void main() {
         if (call == 1) throw const NetworkError('offline');
         return _json(400, {'e': 'nope'});
       });
-      final mutations =
-          OfflineMutations(client: _client(mock), store: store);
+      final mutations = OfflineMutations(client: _client(mock), store: store);
 
       await mutations.mutate<dynamic>(
         'POST',
@@ -274,8 +270,7 @@ void main() {
         if (call == 1) throw const NetworkError('offline');
         return _json(200, {'id': 't1'});
       });
-      final mutations =
-          OfflineMutations(client: _client(mock), store: store);
+      final mutations = OfflineMutations(client: _client(mock), store: store);
 
       await mutations.mutate<dynamic>(
         'POST',

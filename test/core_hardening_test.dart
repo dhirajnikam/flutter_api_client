@@ -59,8 +59,8 @@ void main() {
         ..nullOnReads.add(3);
       final mock = MockAdapter();
       mock.onRequest('GET', RegExp(r'/doc$'), (req) async {
-        final conditional = req.headers.keys
-            .any((k) => k.toLowerCase() == 'if-none-match');
+        final conditional =
+            req.headers.keys.any((k) => k.toLowerCase() == 'if-none-match');
         if (conditional) {
           return AdapterResponse(
             statusCode: 304,

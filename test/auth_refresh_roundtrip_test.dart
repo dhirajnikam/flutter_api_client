@@ -43,9 +43,9 @@ class _SlowWriteStorage implements TokenStorage {
   Future<void> clear() async => _access = null;
 }
 
-Future<R> _within<R>(Future<R> f,
-        {Duration d = const Duration(seconds: 5)}) =>
-    f.timeout(d, onTimeout: () => throw StateError('deadlock / liveness fault'));
+Future<R> _within<R>(Future<R> f, {Duration d = const Duration(seconds: 5)}) =>
+    f.timeout(d,
+        onTimeout: () => throw StateError('deadlock / liveness fault'));
 
 void main() {
   group('Concurrent 401 -> single refresh -> retries use the new token', () {
@@ -106,8 +106,8 @@ void main() {
     test(
         'CachedTokenStorage: the new token is usable immediately while the '
         'slow disk write is still pending, and it still persists', () async {
-      final delegate =
-          _SlowWriteStorage('OLD', writeDelay: const Duration(milliseconds: 60));
+      final delegate = _SlowWriteStorage('OLD',
+          writeDelay: const Duration(milliseconds: 60));
       final cached = CachedTokenStorage(delegate);
       var refreshes = 0;
 
