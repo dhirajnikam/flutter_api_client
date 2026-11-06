@@ -50,7 +50,7 @@ a Markdown API reference, and a backend implementation guide.
 
 ```yaml
 dependencies:
-  flutter_api_client: ^1.7.0
+  flutter_api_client: ^1.8.0
 
 dev_dependencies:
   build_runner: ^2.15.0
