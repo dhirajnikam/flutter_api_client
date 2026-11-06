@@ -1,7 +1,8 @@
-## Unreleased
+## 1.8.0
 
-**Type**: Minor (additive field and parameters, replay and breaker behaviour fixes)  
-**Breaking Changes**: None
+**Release Date**: 2026-11-05  
+**Type**: Minor Release (additive field and parameters, replay and breaker behaviour fixes)  
+**Breaking Changes**: None (backward compatible with 1.7.0)
 
 ### Added
 

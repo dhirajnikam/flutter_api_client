@@ -64,6 +64,17 @@
 /// );
 /// ```
 ///
+/// ## Version 1.8.0
+/// - [NetworkError.sent]: `false` marks a request that provably never left the
+///   device (e.g. a circuit-breaker rejection); replay re-enqueues it without
+///   consuming an attempt, and the opt-in
+///   [OfflineQueueReplayer.neverSentMaxAge] bounds how long it is kept
+/// - [CircuitBreakerInterceptor]: only probes move an open or half-open
+///   circuit, a failed probe reopens it under `[breaker, retry]`, cache-served
+///   responses are ignored, and cooldowns use a monotonic (injectable) clock
+/// - Fixed: malformed internal retry-attempt headers could inflate or extend
+///   the retry count
+///
 /// ## Version 1.7.0
 /// - Per-request replay safety ([QueuedRequest.replaySafety] / [ReplaySafety],
 ///   [OfflineQueueInterceptor.replaySafetyOf]): opt a non-idempotent write out
