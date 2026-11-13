@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 
 import '../../core/api_exception.dart';
+import '../../core/error_classification.dart';
+import '../../core/headers.dart';
 import '../../http/http_adapter.dart';
 import '../interceptor.dart';
 import '../internal_headers.dart';
@@ -13,14 +15,12 @@ import 'cache_store.dart';
 /// Supports `networkFirst`, `cacheFirst`, `staleWhileRevalidate` and
 /// `cacheOnly` strategies, plus ETag / If-None-Match revalidation.
 class CacheInterceptor extends Interceptor {
-  /// Creates a cache interceptor backed by [store].
   CacheInterceptor({
     required this.store,
     this.defaultPolicy,
     this.cacheMethods = const {'GET'},
   });
 
-  /// Backend that holds cached entries.
   final CacheStore store;
 
   /// Policy used when a request does not override it via
@@ -30,24 +30,19 @@ class CacheInterceptor extends Interceptor {
   /// HTTP methods eligible for caching (compared case-insensitively).
   final Set<String> cacheMethods;
 
-  static const _hitHeader = cacheHitHeader;
-
+  /// The policy caching [req] under, or `null` when it is not cached at all.
   CachePolicy? _policyFor(InterceptedRequest req) {
+    if (!cacheMethods.contains(req.method.toUpperCase())) return null;
     final override = req.options.cachePolicy;
-    if (override is CachePolicy) return override;
-    return defaultPolicy;
+    return override is CachePolicy ? override : defaultPolicy;
   }
 
   @override
   Future<InterceptorResult> onRequest(InterceptedRequest req) async {
-    if (!cacheMethods.contains(req.method.toUpperCase())) {
-      return ProceedResult(req);
-    }
     final policy = _policyFor(req);
     if (policy == null) return ProceedResult(req);
 
-    final key = _key(req);
-    final entry = await store.read(key);
+    final entry = await store.read(requestIdentityKey(req));
 
     switch (policy.mode) {
       case CacheMode.cacheOnly:
@@ -55,35 +50,22 @@ class CacheInterceptor extends Interceptor {
         return ResolveResult(
           AdapterResponse(
             statusCode: 504,
-            headers: const {_hitHeader: cacheMissValue},
+            headers: const {cacheHitHeader: cacheMissValue},
             bodyBytes: Uint8List(0),
             reasonPhrase: 'Gateway Timeout (cache-only miss)',
           ),
         );
       case CacheMode.cacheFirst:
+      case CacheMode.staleWhileRevalidate:
         if (entry != null && entry.isFresh(policy.ttl)) {
           return ResolveResult(_toResponse(entry));
         }
-        if (entry?.etag != null && policy.useEtag) {
-          req.headers['If-None-Match'] = entry!.etag!;
-        }
-        return ProceedResult(req);
       case CacheMode.networkFirst:
-        if (entry?.etag != null && policy.useEtag) {
-          req.headers['If-None-Match'] = entry!.etag!;
-        }
-        return ProceedResult(req);
-      case CacheMode.staleWhileRevalidate:
-        if (entry != null) {
-          if (entry.isFresh(policy.ttl)) {
-            return ResolveResult(_toResponse(entry));
-          }
-          if (entry.etag != null && policy.useEtag) {
-            req.headers['If-None-Match'] = entry.etag!;
-          }
-        }
-        return ProceedResult(req);
+        break;
     }
+    final etag = entry?.etag;
+    if (etag != null && policy.useEtag) req.headers['If-None-Match'] = etag;
+    return ProceedResult(req);
   }
 
   @override
@@ -91,22 +73,18 @@ class CacheInterceptor extends Interceptor {
     InterceptedRequest req,
     AdapterResponse res,
   ) async {
-    if (!cacheMethods.contains(req.method.toUpperCase())) {
-      return ResolveResult(res);
-    }
-    // A streaming body is not buffered, so there is nothing to cache.
-    if (res.bodyStream != null) return ResolveResult(res);
-    // A response we served ourselves (cache hit, stale-on-error fallback, or
-    // the synthetic cacheOnly-miss 504) carries the marker header. Re-writing
-    // it would refresh savedAt on every hit, sliding the TTL so a steadily
-    // re-read entry never expires; freshness must be measured from when the
-    // body was actually fetched from the origin, so skip the store entirely.
-    if (res.headers[_hitHeader] != null) return ResolveResult(res);
     final policy = _policyFor(req);
     if (policy == null) return ResolveResult(res);
+    // A streaming body is not buffered, so there is nothing to cache.
+    if (res.bodyStream != null) return ResolveResult(res);
+    // Re-writing a response we served ourselves would refresh savedAt on every
+    // hit, sliding the TTL so a steadily re-read entry never expires;
+    // freshness must be measured from when the body was actually fetched from
+    // the origin.
+    if (isCacheFabricated(res)) return ResolveResult(res);
 
+    final key = requestIdentityKey(req);
     if (res.statusCode == 304) {
-      final key = _key(req);
       final entry = await store.read(key);
       if (entry == null) {
         // The entry was evicted while the conditional request was in flight:
@@ -133,8 +111,6 @@ class CacheInterceptor extends Interceptor {
       return ResolveResult(_toResponse(refreshed));
     }
     if (res.statusCode >= 200 && res.statusCode < 300) {
-      final key = _key(req);
-      final etag = headerValue(res.headers, 'etag');
       await store.write(
         CacheEntry(
           key: key,
@@ -142,7 +118,7 @@ class CacheInterceptor extends Interceptor {
           headers: res.headers,
           bodyBytes: res.bodyBytes,
           savedAt: DateTime.now(),
-          etag: etag,
+          etag: headerValue(res.headers, 'etag'),
         ),
       );
     }
@@ -154,49 +130,29 @@ class CacheInterceptor extends Interceptor {
     InterceptedRequest req,
     ApiException error,
   ) async {
-    if (!cacheMethods.contains(req.method.toUpperCase())) {
-      return RejectResult(error);
-    }
     final policy = _policyFor(req);
-    if (policy == null) return RejectResult(error);
-    // Any read-through mode that keeps a copy should be able to serve it when
-    // the network is unreachable. cacheOnly never reaches the network (so it
-    // never lands here); the other three should all degrade gracefully to the
-    // last-known-good body on a transient failure rather than surfacing an
-    // error the cache could have answered.
-    switch (policy.mode) {
-      case CacheMode.cacheOnly:
-        return RejectResult(error);
-      case CacheMode.networkFirst:
-      case CacheMode.cacheFirst:
-      case CacheMode.staleWhileRevalidate:
-        break;
-    }
-    if (error is! NetworkError && error is! TimeoutError) {
+    // Every read-through mode degrades to the last-known-good body when the
+    // network is unreachable. cacheOnly never reaches the network.
+    if (policy == null ||
+        policy.mode == CacheMode.cacheOnly ||
+        !error.isTransient) {
       return RejectResult(error);
     }
-
-    final entry = await store.read(_key(req));
-    if (entry != null) {
-      return ResolveResult(_toResponse(entry));
-    }
+    final entry = await store.read(requestIdentityKey(req));
+    if (entry != null) return ResolveResult(_toResponse(entry));
     return RejectResult(error);
   }
 
-  /// Builds a response served from a [CacheEntry], tagged with the cache-hit
-  /// marker header so downstream code can tell it came from the cache.
   AdapterResponse _toResponse(CacheEntry e) => AdapterResponse(
         statusCode: e.statusCode,
-        headers: {...e.headers, _hitHeader: cacheHitValue},
+        headers: {...e.headers, cacheHitHeader: cacheHitValue},
         bodyBytes: e.bodyBytes,
       );
-
-  String _key(InterceptedRequest req) => requestIdentityKey(req);
 
   /// Drops every cached entry whose identity key satisfies [test].
   ///
   /// Cache keys are `requestIdentityKey` values — `METHOD url` followed by the
-  /// sorted request headers, including `Authorization` — so they cannot
+  /// sorted request headers (the credential as a digest) — so they cannot
   /// practically be reconstructed by hand and a plain `delete(key)` is unusable
   /// from application code. Match on the key text instead:
   ///

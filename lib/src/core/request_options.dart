@@ -49,7 +49,6 @@ class RequestOptions {
   /// Desired body decoding mode.
   final ResponseType responseType;
 
-  /// Token used to cancel the request.
   final CancelToken? cancelToken;
 
   /// Called as request body bytes are sent.
@@ -71,6 +70,9 @@ class RequestOptions {
   final int? maxResponseBodyBytes;
 
   /// Arbitrary tag for interceptors to inspect.
+  @Deprecated(
+    'Nothing reads it. To be removed in 2.0.0.',
+  )
   final Object? tag;
 
   RequestOptions copyWith({

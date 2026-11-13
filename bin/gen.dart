@@ -2,6 +2,10 @@ import 'dart:io';
 
 import 'package:args/args.dart';
 import 'package:flutter_api_client/src/gen/cli_helpers.dart';
+import 'package:flutter_api_client/src/gen/package_import.dart';
+import 'package:flutter_api_client/src/spec/backend_guide_generator.dart';
+
+const _testPath = 'test/api_spec_test.dart';
 
 void main(List<String> args) async {
   final parser = ArgParser()
@@ -10,19 +14,19 @@ void main(List<String> args) async {
         defaultsTo: 'docs/api',
         help: 'Output directory for generated files')
     ..addOption('only',
-        help:
-            'Comma-separated subset to generate: openapi, reference, backend, tests')
+        help: 'Comma-separated subset to generate: '
+            '${validGenerators.join(', ')}')
+    // Each value is spliced into the runner as `BackendFramework.<value>`.
     ..addOption('framework',
         defaultsTo: 'none',
-        allowed: ['none', 'express', 'fastapi', 'gin'],
+        allowed: [for (final f in BackendFramework.values) EnumName(f).name],
         help: 'Backend framework for code snippets in backend-guide.md')
     ..addFlag('no-json',
         negatable: false, help: 'Skip openapi.json (YAML only)')
     ..addFlag('no-yaml',
         negatable: false, help: 'Skip openapi.yaml (JSON only)')
     ..addFlag('tests',
-        negatable: false,
-        help: 'Shorthand for --only tests; writes test/api_spec_test.dart')
+        negatable: false, help: 'Shorthand for --only tests; writes $_testPath')
     ..addFlag('dry-run',
         negatable: false, help: 'Print output paths without writing files')
     ..addFlag('help', abbr: 'h', negatable: false, help: 'Show this help');
@@ -49,18 +53,12 @@ void main(List<String> args) async {
     stderr.writeln('Error: ${e.message}');
     exit(1);
   }
+  if (parsed['tests'] as bool) generators = ['tests'];
 
-  final outputDir = parsed['output'] as String;
-  final framework = parsed['framework'] as String;
-  final noJson = parsed['no-json'] as bool;
-  final noYaml = parsed['no-yaml'] as bool;
   final dryRun = parsed['dry-run'] as bool;
+  final cwd = Directory.current.path;
 
-  final testsShorthand = parsed['tests'] as bool;
-  if (testsShorthand) generators = ['tests'];
-
-  // Locate the generated spec file.
-  final specFile = findGeneratedSpecFile(Directory.current.path);
+  final specFile = findGeneratedSpecFile(cwd);
   if (specFile == null) {
     stderr.writeln(
       '\n  ✗ No generated spec found.\n\n'
@@ -70,34 +68,24 @@ void main(List<String> args) async {
     exit(1);
   }
 
-  // Build the import path relative to the temp runner location.
-  final cwd = Directory.current.path;
   final runnerDir = '$cwd/tool';
   final runnerPath = '$runnerDir/.flutter_api_client_runner.dart';
 
   // The generated spec file is a `.g.dart` part file; the runner must import
   // the parent `.dart` file that contains the actual declarations.
-  final parentSpecFile = specFile.endsWith('.g.dart')
-      ? specFile.replaceFirst(RegExp(r'\.g\.dart$'), '.dart')
-      : specFile;
+  final parentSpecFile = specFile.replaceFirst(RegExp(r'\.g\.dart$'), '.dart');
 
-  // Make specFile path relative to runnerDir for the import.
-  final specRelative = _relativePath(from: runnerDir, to: parentSpecFile);
-
-  final generatedTestImport = packageImportFor(cwd, parentSpecFile) ??
-      _relativePath(from: '$cwd/test', to: parentSpecFile);
-
-  // Write the temp runner.
   Directory(runnerDir).createSync(recursive: true);
   File(runnerPath).writeAsStringSync(
     _runnerSource(
-      specRelative: specRelative,
-      generatedTestImport: generatedTestImport,
-      outputDir: outputDir,
-      framework: framework,
+      specImport: _relativePath(from: runnerDir, to: parentSpecFile),
+      generatedTestImport: packageImportFor(cwd, parentSpecFile) ??
+          _relativePath(from: '$cwd/test', to: parentSpecFile),
+      outputDir: parsed['output'] as String,
+      framework: parsed['framework'] as String,
       generators: generators,
-      noJson: noJson,
-      noYaml: noYaml,
+      noJson: parsed['no-json'] as bool,
+      noYaml: parsed['no-yaml'] as bool,
       dryRun: dryRun,
     ),
   );
@@ -105,7 +93,6 @@ void main(List<String> args) async {
   stdout.writeln('\nflutter_api_client gen');
   stdout.writeln('─' * 45);
 
-  // Run the temp runner as a subprocess.
   ProcessResult result;
   try {
     result = await Process.run(
@@ -130,32 +117,30 @@ void main(List<String> args) async {
   // aims for `dart format`-clean output, but long inline body literals can
   // still exceed the line limit; running the SDK formatter (already available
   // since the user invoked `dart run`) guarantees the emitted file is clean.
-  if (generators.contains('tests') && !dryRun) {
-    const testPath = 'test/api_spec_test.dart';
-    if (File('$cwd/$testPath').existsSync()) {
-      final fmt = await Process.run(
-        Platform.resolvedExecutable,
-        ['format', testPath],
-        workingDirectory: cwd,
-      );
-      if (fmt.exitCode == 0) {
-        stdout.writeln('  ✓ formatted $testPath');
-      }
+  if (generators.contains('tests') &&
+      !dryRun &&
+      File('$cwd/$_testPath').existsSync()) {
+    final fmt = await Process.run(
+      Platform.resolvedExecutable,
+      ['format', _testPath],
+      workingDirectory: cwd,
+    );
+    if (fmt.exitCode == 0) {
+      stdout.writeln('  ✓ formatted $_testPath');
     }
   }
 
   stdout.writeln('─' * 45);
 }
 
+/// The relative path from the [from] directory to the [to] file.
 String _relativePath({required String from, required String to}) {
-  // Compute a relative path from [from] directory to [to] file. Normalise
-  // separators first: `Directory.current.path` is backslash-based on Windows,
-  // so splitting on '/' alone would treat the whole path as one segment and
-  // compute a wrong relative import.
+  // Normalise separators first: `Directory.current.path` is backslash-based on
+  // Windows, so splitting on '/' alone would treat the whole path as one
+  // segment and compute a wrong relative import.
   final fromParts = from.replaceAll('\\', '/').split('/');
   final toParts = to.replaceAll('\\', '/').split('/');
 
-  // Find common prefix length.
   var common = 0;
   while (common < fromParts.length &&
       common < toParts.length &&
@@ -163,17 +148,14 @@ String _relativePath({required String from, required String to}) {
     common++;
   }
 
-  // For each remaining segment in [from], go up one level.
-  final ups = fromParts.length - common;
-  final rel = <String>[
-    for (var i = 0; i < ups; i++) '..',
+  return [
+    for (var i = common; i < fromParts.length; i++) '..',
     ...toParts.sublist(common),
-  ];
-  return rel.join('/');
+  ].join('/');
 }
 
 String _runnerSource({
-  required String specRelative,
+  required String specImport,
   required String generatedTestImport,
   required String outputDir,
   required String framework,
@@ -182,70 +164,56 @@ String _runnerSource({
   required bool noYaml,
   required bool dryRun,
 }) {
-  final genOpenapi = generators.contains('openapi');
-  final genReference = generators.contains('reference');
-  final genBackend = generators.contains('backend');
-  final genTests = generators.contains('tests');
-
   return '''
 // AUTO-GENERATED — deleted after use. Do not commit.
 // ignore_for_file: depend_on_referenced_packages
 import 'dart:io';
 import 'package:flutter_api_client/flutter_api_client.dart';
-import '${specRelative.replaceAll(r'\\', '/')}';
+import '$specImport';
 
 void main() {
-  final spec = \$generatedSpec;
-  final outDir = Directory('$outputDir');
-  if (!$dryRun) outDir.createSync(recursive: true);
+  final spec = $generatedSpecGetter;
+  if (!$dryRun) Directory('$outputDir').createSync(recursive: true);
 
   var count = 0;
 
-  void write(String name, String content) {
-    final path = '\${outDir.path}/\$name';
+  void write(String path, String content) {
     final kb = (content.length / 1024).toStringAsFixed(1);
     if ($dryRun) {
       stdout.writeln('  (dry-run) \$path  (\$kb KB)');
     } else {
-      File(path).writeAsStringSync(content);
+      File(path)
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(content);
       stdout.writeln('  ✓ \$path  (\$kb KB)');
     }
     count++;
   }
 
-  if ($genOpenapi) {
+  if (${generators.contains('openapi')}) {
     final gen = OpenApiGenerator(spec);
-    if (!$noJson) write('openapi.json', gen.toJsonString());
-    if (!$noYaml) write('openapi.yaml', gen.toYaml());
+    if (!$noJson) write('$outputDir/openapi.json', gen.toJsonString());
+    if (!$noYaml) write('$outputDir/openapi.yaml', gen.toYaml());
   }
-  if ($genReference) {
-    write('api-reference.md', MarkdownDocGenerator(spec).generate());
+  if (${generators.contains('reference')}) {
+    write('$outputDir/api-reference.md', MarkdownDocGenerator(spec).generate());
   }
-  if ($genBackend) {
-    final fw = BackendFramework.values.firstWhere(
-      (f) => f.name == '$framework',
-      orElse: () => BackendFramework.none,
+  if (${generators.contains('backend')}) {
+    write(
+      '$outputDir/backend-guide.md',
+      BackendGuideGenerator(spec, framework: BackendFramework.$framework)
+          .generate(),
     );
-    write('backend-guide.md',
-        BackendGuideGenerator(spec, framework: fw).generate());
   }
-  if ($genTests) {
-    final testDir = Directory('test');
-    final testContent = TestGenerator(
-      spec,
-      specImport: '${generatedTestImport.replaceAll(r'\\', '/')}',
-      specSymbol: r'\$generatedSpec',
-    ).generate();
-    final testPath = 'test/api_spec_test.dart';
-    final testKb = (testContent.length / 1024).toStringAsFixed(1);
-    if ($dryRun) {
-      stdout.writeln('  (dry-run) \$testPath  (\$testKb KB)');
-    } else {
-      testDir.createSync(recursive: true);
-      File(testPath).writeAsStringSync(testContent);
-      stdout.writeln('  ✓ \$testPath  (\$testKb KB)');
-    }
-    count++;
+  if (${generators.contains('tests')}) {
+    write(
+      '$_testPath',
+      TestGenerator(
+        spec,
+        specImport: '$generatedTestImport',
+        specSymbol: r'$generatedSpecGetter',
+      ).generate(),
+    );
   }
 
   stdout.writeln(

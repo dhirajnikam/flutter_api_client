@@ -8,7 +8,6 @@ import '../request_identity.dart';
 /// Coalesces identical in-flight GET requests so the network is only hit
 /// once. Other matching callers receive the same response.
 class DedupInterceptor extends Interceptor {
-  /// Creates a dedup interceptor coalescing the given [methods].
   DedupInterceptor({
     this.methods = const {'GET', 'HEAD'},
     this.waitTimeout = const Duration(seconds: 30),
@@ -23,16 +22,18 @@ class DedupInterceptor extends Interceptor {
   final Duration waitTimeout;
 
   final Map<String, Completer<AdapterResponse>> _inFlight = {};
-  static const _keyHeader = 'x-fac-dedup-key';
+  static final _ownedKey = Object();
 
   @override
   Future<InterceptorResult> onRequest(InterceptedRequest req) async {
     if (!methods.contains(req.method.toUpperCase())) return ProceedResult(req);
-    final key = _key(req);
-    // Re-entry guard: a retry re-runs the chain with a copy that still carries
-    // our key header. Without this, the leader would await its own completer
-    // and deadlock. The owner of the key always proceeds.
-    if (req.headers[_keyHeader] == key) return ProceedResult(req);
+    // Re-entry guard: a retry re-runs the chain with a copy that already owns
+    // an in-flight entry. Without this, the leader would await its own
+    // completer and deadlock. Ownership, not the current key, decides: an
+    // interceptor further down may have changed a header since, and the entry
+    // is released under the key it was registered with.
+    if (req.extra[_ownedKey] != null) return ProceedResult(req);
+    final key = requestIdentityKey(req);
     final existing = _inFlight[key];
     if (existing != null) {
       final ownToken = req.options.cancelToken;
@@ -81,7 +82,7 @@ class DedupInterceptor extends Interceptor {
     // `await existing.future`.
     unawaited(completer.future.then((_) {}, onError: (_) {}));
     _inFlight[key] = completer;
-    req.headers[_keyHeader] = key;
+    req.extra[_ownedKey] = key;
     return ProceedResult(req);
   }
 
@@ -90,21 +91,16 @@ class DedupInterceptor extends Interceptor {
     InterceptedRequest req,
     AdapterResponse res,
   ) async {
-    final key = req.headers[_keyHeader];
-    if (key != null) {
-      final c = _inFlight.remove(key);
-      if (c != null && !c.isCompleted) {
-        if (res.bodyStream == null) {
-          c.complete(res);
-        } else {
-          // A streaming body is single-subscription and cannot be shared with
-          // followers. Complete with an error so any follower already awaiting
-          // the leader is released *immediately* and falls back to its own
-          // request, instead of blocking for the full [waitTimeout].
-          c.completeError(
-            const _DedupNotShareable(),
-          );
-        }
+    final c = _release(req);
+    if (c != null && !c.isCompleted) {
+      if (res.bodyStream == null) {
+        c.complete(res);
+      } else {
+        // A streaming body is single-subscription and cannot be shared with
+        // followers. Complete with an error so any follower already awaiting
+        // the leader is released *immediately* and falls back to its own
+        // request, instead of blocking for the full [waitTimeout].
+        c.completeError(const _DedupNotShareable());
       }
     }
     return ResolveResult(res);
@@ -115,15 +111,19 @@ class DedupInterceptor extends Interceptor {
     InterceptedRequest req,
     ApiException error,
   ) async {
-    final key = req.headers[_keyHeader];
-    if (key != null) {
-      final c = _inFlight.remove(key);
-      if (c != null && !c.isCompleted) c.completeError(error);
-    }
+    final c = _release(req);
+    if (c != null && !c.isCompleted) c.completeError(error);
     return RejectResult(error);
   }
 
-  String _key(InterceptedRequest req) => requestIdentityKey(req);
+  /// Ends [req]'s ownership together with its in-flight entry, so a restart
+  /// from an interceptor above this one re-enters as a fresh request instead
+  /// of bypassing dedup and later releasing somebody else's entry.
+  Completer<AdapterResponse>? _release(InterceptedRequest req) {
+    final c = _inFlight.remove(req.extra[_ownedKey]);
+    req.extra[_ownedKey] = null;
+    return c;
+  }
 }
 
 /// Internal signal: the leader produced a streaming (single-subscription)

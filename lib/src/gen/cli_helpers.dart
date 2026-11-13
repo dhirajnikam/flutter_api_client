@@ -1,17 +1,20 @@
 import 'dart:io';
 
-const _validGenerators = ['openapi', 'reference', 'backend', 'tests'];
+import 'package_import.dart';
+
+/// Generator names accepted by `--only`.
+const validGenerators = ['openapi', 'reference', 'backend', 'tests'];
 
 /// Parses the `--only` flag into a list of generator names.
 /// Returns all generators when [only] is null.
 /// Throws [ArgumentError] for unknown names.
 List<String> parseOnly(String? only) {
-  if (only == null) return List.of(_validGenerators);
+  if (only == null) return List.of(validGenerators);
   final parts = only.split(',').map((s) => s.trim()).toList();
   for (final p in parts) {
-    if (!_validGenerators.contains(p)) {
+    if (!validGenerators.contains(p)) {
       throw ArgumentError(
-        'Unknown generator "$p". Valid values: ${_validGenerators.join(', ')}',
+        'Unknown generator "$p". Valid values: ${validGenerators.join(', ')}',
       );
     }
   }
@@ -26,10 +29,9 @@ String? findGeneratedSpecFile(String searchRoot) {
   for (final entity in dir.listSync(recursive: true)) {
     if (entity is File && entity.path.endsWith('.g.dart')) {
       try {
-        if (entity.readAsStringSync().contains(r'$generatedSpec')) {
-          // Normalize to forward slashes so callers get a platform-independent
-          // path (Directory.listSync yields native `\` separators on Windows),
-          // consistent with packageImportFor / packageImportFromLibPath below.
+        if (entity.readAsStringSync().contains(generatedSpecGetter)) {
+          // Directory.listSync yields native `\` separators on Windows;
+          // callers rely on forward slashes.
           return entity.path.replaceAll('\\', '/');
         }
       } catch (_) {}
@@ -38,11 +40,15 @@ String? findGeneratedSpecFile(String searchRoot) {
   return null;
 }
 
+/// The `package:` URI for [filePath] under [packageRoot]'s `lib/`, or null if
+/// the root has no readable package name or the file is not under `lib/`.
 String? packageImportFor(String packageRoot, String filePath) {
   final pubspec = File('$packageRoot/pubspec.yaml');
   if (!pubspec.existsSync()) return null;
 
-  final packageName = _packageNameFromPubspec(pubspec.readAsStringSync());
+  final packageName = RegExp(r'^name:\s*([^\s#]+)', multiLine: true)
+      .firstMatch(pubspec.readAsStringSync())
+      ?.group(1);
   if (packageName == null) return null;
 
   final root = packageRoot.replaceAll('\\', '/');
@@ -53,52 +59,4 @@ String? packageImportFor(String packageRoot, String filePath) {
   final relativePath = file.substring(rootPrefix.length);
   if (!relativePath.startsWith('lib/')) return null;
   return packageImportFromLibPath(packageName, relativePath);
-}
-
-String packageImportFromLibPath(String packageName, String relativeLibPath) {
-  final normalized = relativeLibPath.replaceAll('\\', '/');
-  if (!normalized.startsWith('lib/')) {
-    throw ArgumentError.value(
-      relativeLibPath,
-      'relativeLibPath',
-      'Expected a path under lib/',
-    );
-  }
-  return 'package:$packageName/${normalized.substring(4)}';
-}
-
-String buildApiSpecSmokeTestSource({
-  required String importPath,
-  required String specSymbol,
-}) {
-  return '''
-// GENERATED CODE - DO NOT MODIFY BY HAND
-// Run `dart run build_runner build` to regenerate.
-// ignore_for_file: depend_on_referenced_packages
-
-import 'package:flutter_test/flutter_test.dart';
-import '$importPath';
-
-void main() {
-  test('spec loads without error', () {
-    expect($specSymbol, isNotNull);
-    expect($specSymbol.endpoints, isNotEmpty);
-  });
-
-  group('Endpoint registration', () {
-    for (final ep in $specSymbol.endpoints) {
-      test('\${ep.method} \${ep.path} is registered', () {
-        expect(ep.path, startsWith('/'));
-        expect(ep.method, isNotEmpty);
-      });
-    }
-  });
-}
-''';
-}
-
-String? _packageNameFromPubspec(String pubspec) {
-  final match =
-      RegExp(r'^name:\s*([^\s#]+)', multiLine: true).firstMatch(pubspec);
-  return match?.group(1);
 }

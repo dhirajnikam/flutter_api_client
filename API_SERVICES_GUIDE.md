@@ -8,10 +8,10 @@
 
 ```yaml
 dependencies:
-  flutter_api_client: ^1.4.0
+  flutter_api_client: ^1.9.0
 
 dev_dependencies:
-  build_runner: ^2.4.0
+  build_runner: ^2.15.0
 ```
 
 ---

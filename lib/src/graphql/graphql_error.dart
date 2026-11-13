@@ -7,7 +7,6 @@ class GraphQLError {
     this.extensions,
   });
 
-  /// Human-readable error message.
   final String message;
 
   /// Response path to the field that errored, e.g. `['user', 'name']`.
@@ -37,11 +36,13 @@ class GraphQLError {
 }
 
 /// Thrown / surfaced when a GraphQL response contains `errors`.
+@Deprecated(
+  'Never thrown by this package; read GraphQLResponse.errors. To '
+  'be removed in 2.0.0.',
+)
 class GraphQLException implements Exception {
-  /// Creates an exception carrying the response's [errors].
   GraphQLException(this.errors);
 
-  /// The GraphQL errors that triggered this exception.
   final List<GraphQLError> errors;
 
   /// The first error's message, or a generic message when [errors] is empty.

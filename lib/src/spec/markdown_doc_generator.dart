@@ -1,6 +1,10 @@
 import 'dart:convert';
+
 import 'api_spec.dart';
+import 'path_placeholder.dart';
 import 'graphql_spec.dart';
+import 'schema.dart';
+import 'spec_text.dart';
 
 /// Generates a human-readable Markdown API reference from an [ApiSpec].
 class MarkdownDocGenerator {
@@ -10,10 +14,10 @@ class MarkdownDocGenerator {
   /// The spec this generator documents.
   final ApiSpec spec;
 
-  // Fixed patterns reused across every endpoint/tag — compiled once.
-  static final RegExp _placeholder = RegExp(r'\{([^}]+)\}');
   static final RegExp _anchorStrip = RegExp(r'[^a-z0-9 -]');
   static final RegExp _anchorSpaces = RegExp(r'\s+');
+
+  late final String _baseUrl = Uri.parse(spec.baseUrl).toString();
 
   /// Renders the full Markdown API reference.
   String generate() {
@@ -28,10 +32,7 @@ class MarkdownDocGenerator {
     }
     buf.writeln();
 
-    final byTag = <String, List<EndpointSpec>>{};
-    for (final ep in spec.endpoints) {
-      byTag.putIfAbsent(ep.tag ?? 'General', () => []).add(ep);
-    }
+    final byTag = endpointsByTag(spec);
 
     buf.writeln('## Table of contents');
     byTag.forEach((tag, eps) {
@@ -98,7 +99,7 @@ class MarkdownDocGenerator {
         buf.writeln('**Example `data`**');
         buf.writeln();
         buf.writeln('```json');
-        buf.writeln(_pretty(op.responseExample));
+        buf.writeln(prettyJson(op.responseExample));
         buf.writeln('```');
         buf.writeln();
       }
@@ -121,30 +122,8 @@ class MarkdownDocGenerator {
     buf.writeln('Auth: ${ep.auth ? 'required' : 'public'}');
     buf.writeln();
 
-    if (ep.pathParams.isNotEmpty) {
-      buf.writeln('**Path parameters**');
-      buf.writeln();
-      buf.writeln('| Name | Type | Required | Description |');
-      buf.writeln('| --- | --- | --- | --- |');
-      ep.pathParams.forEach((k, s) {
-        buf.writeln(
-          '| `$k` | `${s.type}` | ${s.required ? 'yes' : 'no'} | ${s.description ?? ''} |',
-        );
-      });
-      buf.writeln();
-    }
-    if (ep.queryParams.isNotEmpty) {
-      buf.writeln('**Query parameters**');
-      buf.writeln();
-      buf.writeln('| Name | Type | Required | Description |');
-      buf.writeln('| --- | --- | --- | --- |');
-      ep.queryParams.forEach((k, s) {
-        buf.writeln(
-          '| `$k` | `${s.type}` | ${s.required ? 'yes' : 'no'} | ${s.description ?? ''} |',
-        );
-      });
-      buf.writeln();
-    }
+    _writeParams(buf, 'Path parameters', ep.pathParams);
+    _writeParams(buf, 'Query parameters', ep.queryParams);
 
     if (ep.request != null) {
       buf.writeln('**Request body**');
@@ -153,7 +132,7 @@ class MarkdownDocGenerator {
         buf.writeln('Schema:');
         buf.writeln();
         buf.writeln('```json');
-        buf.writeln(_pretty(ep.request!.schema!.toOpenApi()));
+        buf.writeln(prettyJson(ep.request!.schema!.toOpenApi()));
         buf.writeln('```');
       }
       if (ep.request!.body != null) {
@@ -161,7 +140,7 @@ class MarkdownDocGenerator {
         buf.writeln('Example:');
         buf.writeln();
         buf.writeln('```json');
-        buf.writeln(_pretty(ep.request!.body));
+        buf.writeln(prettyJson(ep.request!.body));
         buf.writeln('```');
       }
       buf.writeln();
@@ -175,7 +154,7 @@ class MarkdownDocGenerator {
         if (r.body != null) {
           buf.writeln();
           buf.writeln('  ```json');
-          for (final line in _pretty(r.body).split('\n')) {
+          for (final line in prettyJson(r.body).split('\n')) {
             buf.writeln('  $line');
           }
           buf.writeln('  ```');
@@ -184,19 +163,33 @@ class MarkdownDocGenerator {
       buf.writeln();
     }
 
-    final basePath = Uri.parse(spec.baseUrl).toString();
     buf.writeln('**cURL**');
     buf.writeln();
     buf.writeln('```bash');
-    buf.writeln(_curl(ep, basePath));
+    buf.writeln(_curl(ep));
     buf.writeln('```');
     buf.writeln();
     buf.writeln('---');
     buf.writeln();
   }
 
-  String _curl(EndpointSpec ep, String base) {
-    final path = ep.path.replaceAllMapped(_placeholder, (m) {
+  void _writeParams(
+      StringBuffer buf, String title, Map<String, Schema> params) {
+    if (params.isEmpty) return;
+    buf.writeln('**$title**');
+    buf.writeln();
+    buf.writeln('| Name | Type | Required | Description |');
+    buf.writeln('| --- | --- | --- | --- |');
+    params.forEach((k, s) {
+      buf.writeln(
+        '| `$k` | `${s.type}` | ${s.required ? 'yes' : 'no'} | ${s.description ?? ''} |',
+      );
+    });
+    buf.writeln();
+  }
+
+  String _curl(EndpointSpec ep) {
+    final path = ep.path.replaceAllMapped(pathPlaceholder, (m) {
       final schema = ep.pathParams[m.group(1)];
       return '${schema?.example ?? ':${m.group(1)}'}';
     });
@@ -206,11 +199,9 @@ class MarkdownDocGenerator {
       buf.write(" -H 'Content-Type: application/json'");
       buf.write(" --data '${jsonEncode(ep.request!.body)}'");
     }
-    buf.write(" '$base$path'");
+    buf.write(" '$_baseUrl$path'");
     return buf.toString();
   }
-
-  String _pretty(Object? v) => const JsonEncoder.withIndent('  ').convert(v);
 
   String _anchor(String s) => s
       .toLowerCase()

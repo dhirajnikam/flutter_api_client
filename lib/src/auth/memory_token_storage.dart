@@ -5,8 +5,6 @@ import 'token_storage.dart';
 /// Tokens live only for the lifetime of this instance; nothing is persisted
 /// across restarts.
 class MemoryTokenStorage implements TokenStorage {
-  /// Creates a store optionally seeded with an [accessToken] and
-  /// [refreshToken].
   MemoryTokenStorage({String? accessToken, String? refreshToken})
       : _accessToken = accessToken,
         _refreshToken = refreshToken;

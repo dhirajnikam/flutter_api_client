@@ -69,10 +69,8 @@ class AdapterResponse {
     this.bodyStream,
   });
 
-  /// HTTP status code.
   final int statusCode;
 
-  /// Response headers.
   final Map<String, String> headers;
 
   /// Buffered response body. Empty when [bodyStream] carries the body instead.

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:hive/hive.dart';
 
 import 'cache_store.dart';
@@ -23,26 +24,23 @@ import 'cache_store.dart';
 /// Corrupt or partially-written records (e.g. from a crash mid-write) are
 /// treated as cache misses and deleted, never thrown.
 class HiveCacheStore implements EnumerableCacheStore {
-  /// Creates a store backed by an open Hive [box] of JSON strings.
-  ///
-  /// When [maxEntries] is set, writing past the cap evicts the entries with
-  /// the oldest `savedAt` first. `null` leaves the box unbounded.
   HiveCacheStore(this.box, {this.maxEntries});
 
   /// The Hive box holding one JSON-encoded [CacheEntry] per identity key.
   final Box<String> box;
 
-  /// Optional cap on stored entries; oldest `savedAt` evicted first.
+  /// Cap on stored entries; writing past it evicts the oldest `savedAt`
+  /// first. `null` leaves the box unbounded.
   final int? maxEntries;
 
   @override
   Future<CacheEntry?> read(String key) async {
-    final raw = box.get(key);
+    final raw = box.get(_boxKey(key));
     if (raw == null) return null;
     final entry = _decode(raw);
     if (entry == null) {
       // Corrupt record: drop it so it cannot shadow a future write.
-      await box.delete(key);
+      await box.delete(_boxKey(key));
       return null;
     }
     return entry;
@@ -50,7 +48,7 @@ class HiveCacheStore implements EnumerableCacheStore {
 
   @override
   Future<void> write(CacheEntry entry) async {
-    await box.put(entry.key, jsonEncode(_toJson(entry)));
+    await box.put(_boxKey(entry.key), jsonEncode(_toJson(entry)));
     final cap = maxEntries;
     if (cap != null && box.length > cap) {
       await _evictOldest(box.length - cap);
@@ -58,7 +56,7 @@ class HiveCacheStore implements EnumerableCacheStore {
   }
 
   @override
-  Future<void> delete(String key) => box.delete(key);
+  Future<void> delete(String key) => box.delete(_boxKey(key));
 
   @override
   Future<void> clear() async {
@@ -66,7 +64,12 @@ class HiveCacheStore implements EnumerableCacheStore {
   }
 
   @override
-  Future<Iterable<String>> keys() async => box.keys.cast<String>().toList();
+  Future<Iterable<String>> keys() async =>
+      box.values.map((raw) => _decode(raw)?.key).whereType<String>().toList();
+
+  /// Hive limits string keys to 255 characters and an identity key (URL plus
+  /// every header) easily exceeds that, so records are filed under a digest.
+  String _boxKey(String key) => sha256.convert(utf8.encode(key)).toString();
 
   Map<String, Object?> _toJson(CacheEntry e) => {
         'key': e.key,

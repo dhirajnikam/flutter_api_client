@@ -1,6 +1,6 @@
 /// How a `List` value is expanded into query-string pairs.
 enum QueryListFormat {
-  /// Repeat the key for each element: `tags=a&tags=b` (default, pre-1.3.0).
+  /// Repeat the key for each element: `tags=a&tags=b` (default).
   repeated,
 
   /// Append `[]` to the key: `tags[]=a&tags[]=b`.
@@ -12,7 +12,7 @@ enum QueryListFormat {
 
 /// How a nested `Map` value is flattened into query-string keys.
 enum QueryNestedStyle {
-  /// Bracketed sub-keys: `filter[name]=foo` (default, pre-1.3.0).
+  /// Bracketed sub-keys: `filter[name]=foo` (default).
   brackets,
 
   /// Dotted sub-keys: `filter.name=foo`.
@@ -21,11 +21,10 @@ enum QueryNestedStyle {
 
 /// Configurable serializer for URL query strings.
 ///
-/// The default `const QueryEncoder()` reproduces the pre-1.3.0 behaviour
-/// exactly: repeated-key lists, bracketed nested maps, dropped `null` values,
-/// and `Uri.encodeQueryComponent` (which encodes spaces as `+`).
+/// The default `const QueryEncoder()` uses repeated-key lists, bracketed
+/// nested maps, dropped `null` values, and `Uri.encodeQueryComponent` (which
+/// encodes spaces as `+`).
 class QueryEncoder {
-  /// Creates a query encoder. All knobs default to the pre-1.3.0 behaviour.
   const QueryEncoder({
     this.listFormat = QueryListFormat.repeated,
     this.nested = QueryNestedStyle.brackets,
@@ -33,10 +32,8 @@ class QueryEncoder {
     this.encodeComponent = Uri.encodeQueryComponent,
   });
 
-  /// Controls how `List` values are expanded.
   final QueryListFormat listFormat;
 
-  /// Controls how nested `Map` values are flattened.
   final QueryNestedStyle nested;
 
   /// When true, `null` values are emitted as an empty value (`key=`) instead

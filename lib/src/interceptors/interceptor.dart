@@ -11,18 +11,23 @@ class InterceptedRequest {
     required this.options,
     this.data,
     this.isMultipart = false,
-  });
+    Map<Object, Object?>? extra,
+  }) : extra = extra ?? {};
 
-  /// HTTP method (e.g. `GET`, `POST`).
   String method;
 
   /// Path or absolute URL being requested, before query resolution.
   String endpoint;
 
-  /// Mutable request headers, including internal `x-fac-*` coordination headers.
+  /// Mutable request headers. Internal `x-fac-*` headers are stripped before
+  /// transport.
   Map<String, String> headers;
 
   /// Per-request options (query parameters, overrides, timeouts, etc.).
+  ///
+  /// When the request comes from `ApiClient`, `baseUrlOverride` and `timeout`
+  /// are always filled in with the effective values (the per-request override
+  /// or the client's configured default).
   RequestOptions options;
 
   /// Request body, if any. `null` for bodyless methods.
@@ -31,8 +36,16 @@ class InterceptedRequest {
   /// Whether [data] is a multipart payload (which loggers must not stringify).
   bool isMultipart;
 
-  /// A shallow copy with a fresh [headers] map, so a retry can mutate headers
-  /// without disturbing the in-flight request it was cloned from.
+  /// Per-request scratch space for interceptors: state that must survive a
+  /// chain restart (an attempt counter, "already refreshed") but must never
+  /// reach the origin, a log, or the request's identity. Key entries with a
+  /// private object so interceptors cannot collide. The chain carries entries
+  /// over to a request an interceptor builds by hand, so set an entry to
+  /// `null` to clear it; a removed key would be carried over again.
+  final Map<Object, Object?> extra;
+
+  /// A shallow copy with fresh [headers] and [extra] maps, so a retry can
+  /// mutate them without disturbing the in-flight request it was cloned from.
   InterceptedRequest copy() => InterceptedRequest(
         method: method,
         endpoint: endpoint,
@@ -40,6 +53,7 @@ class InterceptedRequest {
         options: options,
         data: data,
         isMultipart: isMultipart,
+        extra: Map.of(extra),
       );
 }
 
@@ -52,7 +66,6 @@ sealed class InterceptorResult {
 final class ProceedResult extends InterceptorResult {
   const ProceedResult(this.request);
 
-  /// The request to carry to the next step.
   final InterceptedRequest request;
 }
 
@@ -60,7 +73,6 @@ final class ProceedResult extends InterceptorResult {
 final class ResolveResult extends InterceptorResult {
   const ResolveResult(this.response);
 
-  /// The response to resolve with.
   final AdapterResponse response;
 }
 
@@ -68,7 +80,6 @@ final class ResolveResult extends InterceptorResult {
 final class RejectResult extends InterceptorResult {
   const RejectResult(this.error);
 
-  /// The error to reject with.
   final ApiException error;
 }
 

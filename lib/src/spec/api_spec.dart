@@ -1,5 +1,6 @@
 import 'examples.dart';
 import 'graphql_spec.dart';
+import 'path_placeholder.dart';
 import 'schema.dart';
 
 /// A single endpoint in the spec.
@@ -49,10 +50,6 @@ class EndpointSpec {
   /// Declared example responses, used to drive mocks and docs.
   final List<ResponseExample> responses;
 
-  /// Matches a `{placeholder}` token in a path. The pattern depends only on the
-  /// path syntax, not on any instance, so compile it once and share it.
-  static final RegExp _placeholder = RegExp(r'\{([^}]+)\}');
-
   /// The first 2xx response in [responses], or `null` if none is declared.
   ResponseExample? get firstSuccess {
     for (final r in responses) {
@@ -67,14 +64,15 @@ class EndpointSpec {
   /// the spec mock adapter probe this once per endpoint per request, and
   /// recompiling a fixed regex on every probe is overhead the problem does not
   /// require.
-  RegExp get pathPattern => _pathPattern ??=
-      RegExp('^${path.replaceAllMapped(_placeholder, (_) => r'([^/]+)')}\$');
+  RegExp get pathPattern => _pathPattern ??= RegExp(
+        '^${path.replaceAllMapped(pathPlaceholder, (_) => r'([^/]+)')}\$',
+      );
   RegExp? _pathPattern;
 
   /// The placeholder names in [path], in order (e.g. `['id']` for
   /// `/users/{id}`). Memoized — derived purely from the immutable `path`.
   List<String> get pathParamNames => _pathParamNames ??= [
-        for (final m in _placeholder.allMatches(path)) m.group(1)!,
+        for (final m in pathPlaceholder.allMatches(path)) m.group(1)!,
       ];
   List<String>? _pathParamNames;
 }

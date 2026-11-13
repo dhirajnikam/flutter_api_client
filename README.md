@@ -50,7 +50,7 @@ a Markdown API reference, and a backend implementation guide.
 
 ```yaml
 dependencies:
-  flutter_api_client: ^1.8.0
+  flutter_api_client: ^1.9.0
 
 dev_dependencies:
   build_runner: ^2.15.0
@@ -176,7 +176,7 @@ flutter test --concurrency=8
   per-request at-least-once / at-most-once delivery (`ReplaySafety`)
 - **Optimistic offline mutations**: Update local data now, sync later, with
   priority, custom ordering, and auto-replay on reconnect (`OfflineMutations`,
-  `OfflineAutoReplay`)
+  `OfflineSyncManager`)
 - **Selective cache invalidation**: Drop one stale endpoint without clearing
   the store (`evictEndpoint` / `evictWhere`)
 - **Cancel tokens**: Cancel multiple related requests simultaneously
@@ -192,7 +192,7 @@ flutter test --concurrency=8
 ### Testing & Mocking
 - **MockAdapter**: Route-based mocking with request capture
 - **SpecMockAdapter**: Schema-validating mock from API spec
-- **Built-in test suite**: 521 passing tests covering all features
+- **Built-in test suite**: passing tests covering all features
 - **No external mock libs**: Everything needed for testing included
 
 ### Spec-Driven Development (Unique Feature)
@@ -225,16 +225,16 @@ flutter test --concurrency=8
 ```yaml
 # pubspec.yaml
 dependencies:
-  flutter_api_client: ^1.1.0
+  flutter_api_client: ^1.9.0
 ```
 
 ```bash
 flutter pub get
 ```
 
-**Runtime dependencies:** [`http`](https://pub.dev/packages/http) ^1.6.0,
-[`collection`](https://pub.dev/packages/collection) ^1.19.1,
-[`hive`](https://pub.dev/packages/hive) ^2.2.3.
+**Runtime dependencies:** see `pubspec.yaml` — [`http`](https://pub.dev/packages/http),
+[`hive`](https://pub.dev/packages/hive) and [`crypto`](https://pub.dev/packages/crypto)
+for the client, plus `build`, `source_gen` and `args` for the spec generator.
 
 **Permissions:** this package does not add Android, iOS, macOS, or web
 permissions of its own. Outbound networking policy (for example Android
@@ -312,7 +312,7 @@ result.when(
 | `authHeaderName` | `String` | `'Authorization'` | Header the auth token is written to |
 | `bodySerializer` | `RequestBodySerializer` | JSON | Encodes request bodies before transport |
 | `responseJsonCodec` | `ResponseJsonCodec` | `jsonDecode` | Parses JSON response bodies |
-| `charset` | `Charset` | UTF-8 | Charset for encoding string bodies / decoding responses |
+| `charset` | `Charset` | UTF-8 | Charset for decoding responses (request bodies use `bodySerializer`'s charset) |
 | `queryEncoder` | `QueryEncoder` | repeated-key | Serializes URL query parameters |
 | `isSuccessStatus` | `bool Function(int)` | `2xx` | Decides which status codes are `Success` |
 
@@ -423,24 +423,13 @@ ApiClientConfig(
 );
 ```
 
-> **Note:** if you rename the auth header, the bundled loggers won't redact it
-> by default (they key on `authorization`). Add your header name to the
-> logger's `redactHeaders` set so the token isn't logged in the clear.
+> **Note:** a renamed auth header is still redacted by the bundled loggers and
+> is never persisted by the offline queue.
 
-**Through the convenience factories** — `withToken` / `withStorage` / `test`
-accept a single `ClientCustomization` bundle so you don't need the full
-constructor:
-
-```dart
-ApiClientConfig.withToken(
-  baseUrl: 'https://api.example.com',
-  getAccessToken: () async => await SecureStorage.read('token'),
-  customization: const ClientCustomization(
-    defaultAcceptLanguage: 'de-DE',
-    authHeaderName: 'X-Auth-Token',
-  ),
-);
-```
+> **Deprecated:** the `customization:` parameter of `withToken` /
+> `withStorage` / `test` and its `ClientCustomization` bundle are deprecated
+> and will be removed in 2.0.0. Pass the same options to the `ApiClientConfig`
+> constructor, as shown above.
 
 ---
 
@@ -463,6 +452,10 @@ final res = await client.post<Map<String, dynamic>>(
 await client.put('posts/1',   {'title': 'Updated'});
 await client.patch('posts/1', {'title': 'Patched'});
 await client.delete('posts/1');
+
+// Any other method (HEAD, OPTIONS, a custom verb); the verbs above are
+// shorthands for this.
+await client.request<dynamic>('HEAD', 'posts/1');
 
 // QUERY — safe, idempotent, cacheable read that carries a request body, so
 // complex queries live in the body instead of the URL. Standardized in
@@ -684,8 +677,8 @@ final storage = CachedTokenStorage(SecureTokenStorage());
 storage.clearCache();
 
 // Update cache + delegate immediately
-storage.updateAccessToken('new-jwt');
-storage.updateRefreshToken('new-refresh-jwt');
+await storage.setAccessToken('new-jwt');
+await storage.setRefreshToken('new-refresh-jwt');
 ```
 
 ### Concurrent-safe 401 refresh
@@ -726,6 +719,26 @@ Each interceptor overrides one or more of:
 Future<InterceptorResult> onRequest(InterceptedRequest req)  → ProceedResult / ResolveResult / RejectResult
 Future<InterceptorResult> onResponse(InterceptedRequest, AdapterResponse) → same
 Future<InterceptorResult> onError(InterceptedRequest, ApiException)       → same
+```
+
+An interceptor that needs to remember something about a request across a
+retry (an attempt counter, "already refreshed") keeps it in
+`InterceptedRequest.extra`, keyed by a private object. Unlike a header, it is
+never sent, logged, or made part of the cache/dedup key:
+
+```dart
+class OnceOnly extends Interceptor {
+  static final _seen = Object();
+
+  @override
+  Future<InterceptorResult> onResponse(
+      InterceptedRequest req, AdapterResponse res) async {
+    if (res.statusCode != 409 || req.extra[_seen] == true) {
+      return ResolveResult(res);
+    }
+    return ProceedResult(req.copy()..extra[_seen] = true); // retry once
+  }
+}
 ```
 
 ---
@@ -1087,24 +1100,12 @@ with any store (Hive, Isar, Drift, Bloc, Riverpod, a plain map).
 > restart-durable rollback, have `apply` write a "pending" marker your startup
 > reconciles (Dart can't serialize closures).
 
-### `OfflineAutoReplay` — replay on reconnect
+### Replay on reconnect
 
-Feed it a `Stream<bool>` (`true` = online) from any connectivity source and it
-replays the queue automatically, coalescing overlapping triggers:
-
-```dart
-final auto = OfflineAutoReplay(
-  replayer: mutations.buildReplayer(), // pre-wired to commit/rollback
-  onReplayed: (report) => debugPrint('$report'),
-);
-auto.bind(
-  Connectivity().onConnectivityChanged.map((r) => r != ConnectivityResult.none),
-);
-// auto.trigger();       // manual "retry now"
-// await auto.dispose(); // on logout / teardown
-```
-
-No connectivity package is bundled — you supply the stream, so any source works.
+> **Deprecated:** `OfflineAutoReplay` is deprecated and will be removed in
+> 2.0.0. `OfflineSyncManager` below does the same job and also retries.
+> Pass it `mutations.buildReplayer()` so replays commit or roll back
+> optimistic state.
 
 **Hands-free syncing** — `OfflineSyncManager` drives the replayer from a
 connectivity signal so you don't wire the listener plumbing yourself:
@@ -1362,7 +1363,7 @@ final res = await gql.mutation<Map<String, dynamic>>(
 | `isPartial` | `bool` | True when both `data` and `errors` are present |
 | `hasErrors` | `bool` | Shorthand for `errors.isNotEmpty` |
 | `statusCode` | `int` | Underlying HTTP status |
-| `networkError` | `ApiException?` | Set when transport failed entirely |
+| `networkError` | `ApiException?` | The typed error (`TimeoutError`, `NetworkError`, …) when transport failed |
 | `extensions` | `Map<String, Object?>?` | Server metadata block |
 
 ### Automatic Persisted Queries (APQ)
@@ -1638,7 +1639,7 @@ class MyAdapter implements HttpAdapter {
 |---|---|
 | `ApiClient` | Main HTTP client |
 | `ApiClientConfig` | Configuration value object |
-| `ApiClientInterface` | Abstract contract for `get/post/put/patch/delete` |
+| `ApiClientInterface` | Deprecated abstract contract for `get/post/put/patch/delete` |
 | `ApiResult<T>` | Sealed result returned by all HTTP verb methods |
 | `Success<T>` | Successful `ApiResult` (carries `data`, `statusCode`, `headers`) |
 | `Failure<T>` | Failed `ApiResult` (carries `error`, optional `statusCode`) |
@@ -1730,14 +1731,14 @@ class MyAdapter implements HttpAdapter {
 | Untyped response wrapper | `ApiResult<T>` (`T` defaults to `dynamic`) |
 | Manual 401 retry logic | Built-in via `AuthInterceptor` + `refreshToken` |
 | Manual retry-on-503 | `RetryInterceptor(policy: RetryPolicy.exponential(...))` |
-| `lib/core/api_client.dart` | `lib/src/core/api_client.dart` |
+| `lib/core/api_client.dart` | `lib/src/client/api_client.dart` |
 | `lib/core/token_storage.dart` | `lib/src/auth/token_storage.dart` |
 
 ---
 
 ## Test suite
 
-**521 root-package tests + 4 example tests — all passing** (verified with
+**Root-package and example tests — all passing** (verified with
 `flutter test` at the repo root and in `example/`):
 
 ```text
@@ -1746,22 +1747,22 @@ $ (cd example && flutter test)
 All tests passed.
 ```
 
-| File | Coverage |
+Tests are filed by the `lib/src` area they cover:
+
+| Directory | Coverage |
 |---|---|
-| `flutter_api_client_test.dart` | Client instantiation, `ApiResult` convenience access, token storage, request options, cancel tokens, query building |
-| `api_result_test.dart` | `ApiResult` mapping/accessors, successful parse failures, empty-body success semantics, `ApiException` subtypes |
-| `mock_adapter_test.dart` | Mock routing/capture, retry, dedup, cache, auth refresh queue, cancellation |
-| `retry_error_test.dart` | `RetryInterceptor.onError` behavior for network, timeout, exhaustion, and non-retryable HTTP errors |
-| `cache_interceptor_test.dart` | `networkFirst`, `cacheOnly`, `staleWhileRevalidate`, ETag / 304, in-memory LRU behavior |
-| `offline_queue_test.dart` | Queue store operations and offline enqueue rules |
-| `logger_test.dart` | cURL / pretty logging, redaction, truncation, and error logging |
-| `utilities_test.dart` | `FormData`, `CancelToken`, `buildUri`, `CachedTokenStorage`, auth edge cases |
-| `spec_test.dart` | `ApiSpec`, `SpecMockAdapter`, generators, and schema validation |
-| `graphql_test.dart` | GraphQL client flows, validation, status overrides, and generator output |
-| `gen_cli_test.dart` | CLI generator selection and generated spec discovery |
-| `test_generator_test.dart` | Generated test scaffold output |
-| `default_http_adapter_test.dart` | Transport: body encoding, header handling, response coalescing |
-| `bugfix_core_test.dart` / `bugfix_http_test.dart` / `bugfix_interceptors_test.dart` / `bugfix_spec_test.dart` / `fixes_test.dart` | Regression tests pinning fixed bugs (auth-token leak guard, single `Content-Type` merge, streaming error-path drain, APQ hash fallback, dedup-on-retry no deadlock) |
+| `test/client/` | `ApiClient` requests and typed results, response decoding, streaming, progress callbacks, cancellation, config customization |
+| `test/core/` | `ApiResult`, `ApiException`, `CancelToken`, query building / `buildUri`, `FormData`, `RequestOptions`, pluggable serialization |
+| `test/auth/` | `AuthInterceptor`, token storages, concurrent-401 refresh round trips |
+| `test/http/` | `DefaultHttpAdapter`, `MockAdapter`, streaming transport |
+| `test/interceptors/` | One file per interceptor: `chain_test.dart`, `cache_test.dart` (plus `cache_store_test.dart`, `cache_eviction_test.dart`), `retry_test.dart`, `dedup_test.dart`, `circuit_breaker_test.dart`, `logging_test.dart`, `request_identity_test.dart`, `chain_resource_safety_test.dart`, `dedup_cancellation_test.dart` |
+| `test/offline/` | Queue and stores, `OfflineQueueInterceptor`, replayer, replay safety, never-sent handling, optimistic mutations, sync manager / auto replay |
+| `test/spec/` | `ApiSpec`, `Schema`, `SpecMockAdapter`, OpenAPI / Markdown / backend-guide / test generators |
+| `test/gen/` | CLI generator selection, generated spec discovery, builder template |
+| `test/graphql/` | `GraphQLClient` flows and APQ |
+| `test/integration/` | Multi-interceptor stacks, offline replay end to end, extension-point substitutability |
+| `test/support/` | Shared non-test helpers (`liveness.dart`: `within` timeout guard) |
+
 Run with coverage:
 
 ```bash

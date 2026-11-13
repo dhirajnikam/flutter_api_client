@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -28,12 +27,9 @@ class DefaultHttpAdapter implements HttpAdapter, StreamingHttpAdapter {
     final ownsClient = _sharedClient == null;
     final client = _sharedClient ?? _clientFactory();
     var cancelled = false;
-    // Close the owned client exactly once. The cancel listener closes it to
+    // Close the owned client exactly once: the cancel listener closes it to
     // interrupt an in-flight send/read promptly, and the `finally` closes it on
-    // every normal/error exit; without this guard a cancelled request closed
-    // the owned client twice (listener + finally). http.Client.close() is
-    // idempotent so it never crashed, but a double-close is still a defect and
-    // it broke the "closed exactly once" invariant the streaming path upholds.
+    // every other exit.
     var closed = false;
     void closeOwned() {
       if (closed || !ownsClient) return;
@@ -47,21 +43,10 @@ class DefaultHttpAdapter implements HttpAdapter, StreamingHttpAdapter {
     });
 
     try {
-      final httpRequest = _buildHttpRequest(request);
-
-      _checkRequestSize(httpRequest, request.maxRequestBodyBytes);
-
-      _reportSendProgress(httpRequest, request.onSendProgress);
-      request.cancelToken?.throwIfCancelled();
-
-      final streamed = await client.send(httpRequest).timeout(request.timeout);
-      request.cancelToken?.throwIfCancelled();
+      final streamed = await _sendHeaders(client, request);
 
       final total = streamed.contentLength;
       var received = 0;
-      // Accumulate with a BytesBuilder (copy:false retains chunk buffers) so
-      // the body is coalesced in a single pass instead of expand→toList→
-      // Uint8List.fromList, which walked and boxed every byte three times.
       final builder = BytesBuilder(copy: false);
       // `.timeout` on client.send only covers the headers; a body that stalls
       // mid-dribble would otherwise hang forever. Re-arm the same timeout per
@@ -78,7 +63,7 @@ class DefaultHttpAdapter implements HttpAdapter, StreamingHttpAdapter {
             nextReceived > maxResponseBodyBytes) {
           // The `finally` block closes the owned client; don't close it here
           // and double-close while the stream is still being torn down.
-          _throwPayloadTooLarge(
+          throw _payloadTooLarge(
             direction: 'response',
             limitBytes: maxResponseBodyBytes,
             actualBytes: nextReceived,
@@ -97,22 +82,8 @@ class DefaultHttpAdapter implements HttpAdapter, StreamingHttpAdapter {
         bodyBytes: bytes,
         reasonPhrase: streamed.reasonPhrase,
       );
-    } on TimeoutException catch (e, st) {
-      throw TimeoutError(
-        'Request timed out after ${request.timeout.inMilliseconds}ms',
-        cause: e,
-        stackTrace: st,
-      );
-    } on ApiException {
-      rethrow;
     } catch (e, st) {
-      if (request.cancelToken?.isCancelled ?? false) {
-        throw request.cancelToken!.error!;
-      }
-      // ponytail: connect-phase failures (DNS, refused) are not told apart from
-      // mid-flight ones — package:http fuses connect, write and response.
-      // `sent: false` is the extension point if that ever becomes detectable.
-      throw NetworkError(e.toString(), cause: e, stackTrace: st);
+      Error.throwWithStackTrace(_asApiException(e, st, request), st);
     } finally {
       removeListener?.call();
       closeOwned();
@@ -149,13 +120,7 @@ class DefaultHttpAdapter implements HttpAdapter, StreamingHttpAdapter {
     });
 
     try {
-      final httpRequest = _buildHttpRequest(request);
-      _checkRequestSize(httpRequest, request.maxRequestBodyBytes);
-      _reportSendProgress(httpRequest, request.onSendProgress);
-      request.cancelToken?.throwIfCancelled();
-
-      final streamed = await client.send(httpRequest).timeout(request.timeout);
-      request.cancelToken?.throwIfCancelled();
+      final streamed = await _sendHeaders(client, request);
 
       final total = streamed.contentLength;
       final maxResponseBodyBytes = request.maxResponseBodyBytes;
@@ -190,12 +155,10 @@ class DefaultHttpAdapter implements HttpAdapter, StreamingHttpAdapter {
           final next = received + chunk.length;
           if (maxResponseBodyBytes != null && next > maxResponseBodyBytes) {
             abort(
-              PayloadTooLargeError(
-                'response body exceeded configured limit of '
-                '$maxResponseBodyBytes bytes',
+              _payloadTooLarge(
+                direction: 'response',
                 limitBytes: maxResponseBodyBytes,
                 actualBytes: next,
-                direction: 'response',
               ),
             );
             return;
@@ -238,26 +201,43 @@ class DefaultHttpAdapter implements HttpAdapter, StreamingHttpAdapter {
         reasonPhrase: streamed.reasonPhrase,
         bodyStream: controller.stream,
       );
-    } on TimeoutException catch (e, st) {
+    } catch (e, st) {
       cleanup();
-      throw TimeoutError(
+      Error.throwWithStackTrace(_asApiException(e, st, request), st);
+    }
+  }
+
+  /// Sends [request] and waits for the response headers; the body is still
+  /// unread.
+  Future<http.StreamedResponse> _sendHeaders(
+    http.Client client,
+    AdapterRequest request,
+  ) async {
+    final httpRequest = _buildHttpRequest(request);
+    _checkRequestSize(httpRequest, request.maxRequestBodyBytes);
+    _reportSendProgress(httpRequest, request.onSendProgress);
+    request.cancelToken?.throwIfCancelled();
+    final streamed = await client.send(httpRequest).timeout(request.timeout);
+    request.cancelToken?.throwIfCancelled();
+    return streamed;
+  }
+
+  ApiException _asApiException(
+      Object e, StackTrace st, AdapterRequest request) {
+    if (e is ApiException) return e;
+    if (e is TimeoutException) {
+      return TimeoutError(
         'Request timed out after ${request.timeout.inMilliseconds}ms',
         cause: e,
         stackTrace: st,
       );
-    } on ApiException {
-      cleanup();
-      rethrow;
-    } catch (e, st) {
-      cleanup();
-      if (request.cancelToken?.isCancelled ?? false) {
-        throw request.cancelToken!.error!;
-      }
-      // ponytail: connect-phase failures (DNS, refused) are not told apart from
-      // mid-flight ones — package:http fuses connect, write and response.
-      // `sent: false` is the extension point if that ever becomes detectable.
-      throw NetworkError(e.toString(), cause: e, stackTrace: st);
     }
+    final cancelError = request.cancelToken?.error;
+    if (cancelError != null) return cancelError;
+    // ponytail: connect-phase failures (DNS, refused) are not told apart from
+    // mid-flight ones — package:http fuses connect, write and response.
+    // `sent: false` is the extension point if that ever becomes detectable.
+    return NetworkError(e.toString(), cause: e, stackTrace: st);
   }
 
   http.BaseRequest _buildHttpRequest(AdapterRequest request) {
@@ -309,36 +289,27 @@ class DefaultHttpAdapter implements HttpAdapter, StreamingHttpAdapter {
     if (maxBytes == null) return;
     final total = request.contentLength;
     if (total == null || total <= maxBytes) return;
-    _throwPayloadTooLarge(
+    throw _payloadTooLarge(
       direction: 'request',
       limitBytes: maxBytes,
       actualBytes: total,
     );
   }
 
-  Never _throwPayloadTooLarge({
+  PayloadTooLargeError _payloadTooLarge({
     required String direction,
     required int limitBytes,
     required int actualBytes,
-  }) {
-    throw PayloadTooLargeError(
-      '$direction body exceeded configured limit of $limitBytes bytes',
-      limitBytes: limitBytes,
-      actualBytes: actualBytes,
-      direction: direction,
-    );
-  }
+  }) =>
+      PayloadTooLargeError(
+        '$direction body exceeded configured limit of $limitBytes bytes',
+        limitBytes: limitBytes,
+        actualBytes: actualBytes,
+        direction: direction,
+      );
 
   @override
   void close() {
     _sharedClient?.close();
   }
-}
-
-/// Encodes [data] to JSON bytes for non-multipart requests.
-List<int>? encodeBody(dynamic data) {
-  if (data == null) return null;
-  if (data is String) return utf8.encode(data);
-  if (data is List<int>) return data;
-  return utf8.encode(jsonEncode(data));
 }

@@ -186,6 +186,22 @@ class Schema {
       if (required) errors.add('${path.isEmpty ? '<root>' : path} is required');
       return errors;
     }
+
+    void checkRange(num v) {
+      if (minimum != null && v < minimum!) {
+        errors.add('$path: minimum $minimum');
+      }
+      if (maximum != null && v > maximum!) {
+        errors.add('$path: maximum $maximum');
+      }
+    }
+
+    void checkEnum() {
+      if (enumValues != null && !enumValues!.contains(value)) {
+        errors.add('$path: not in enum $enumValues');
+      }
+    }
+
     switch (type) {
       case 'string':
         if (value is! String) {
@@ -197,58 +213,36 @@ class Schema {
           if (maxLength != null && value.length > maxLength!) {
             errors.add('$path: maxLength $maxLength');
           }
-          if (enumValues != null && !enumValues!.contains(value)) {
-            errors.add('$path: not in enum $enumValues');
-          }
+          checkEnum();
         }
-        break;
       case 'integer':
         if (value is! int) {
           errors.add('$path: expected integer');
         } else {
-          if (minimum != null && value < minimum!) {
-            errors.add('$path: minimum $minimum');
-          }
-          if (maximum != null && value > maximum!) {
-            errors.add('$path: maximum $maximum');
-          }
-          if (enumValues != null && !enumValues!.contains(value)) {
-            errors.add('$path: not in enum $enumValues');
-          }
+          checkRange(value);
+          checkEnum();
         }
-        break;
       case 'number':
         if (value is! num) {
           errors.add('$path: expected number');
         } else {
-          if (minimum != null && value < minimum!) {
-            errors.add('$path: minimum $minimum');
-          }
-          if (maximum != null && value > maximum!) {
-            errors.add('$path: maximum $maximum');
-          }
-          if (enumValues != null && !enumValues!.contains(value)) {
-            errors.add('$path: not in enum $enumValues');
-          }
+          checkRange(value);
+          checkEnum();
         }
-        break;
       case 'boolean':
         if (value is! bool) {
           errors.add('$path: expected boolean');
-        } else if (enumValues != null && !enumValues!.contains(value)) {
-          errors.add('$path: not in enum $enumValues');
+        } else {
+          checkEnum();
         }
-        break;
       case 'object':
         if (value is! Map) {
           errors.add('$path: expected object');
         } else if (properties != null) {
           properties!.forEach((k, s) {
-            final v = value[k];
-            errors.addAll(s.validate(v, path.isEmpty ? k : '$path.$k'));
+            errors.addAll(s.validate(value[k], path.isEmpty ? k : '$path.$k'));
           });
         }
-        break;
       case 'array':
         if (value is! List) {
           errors.add('$path: expected array');
@@ -257,7 +251,6 @@ class Schema {
             errors.addAll(items!.validate(value[i], '$path[$i]'));
           }
         }
-        break;
       default:
         // An unknown type silently passing validation is worse than a clear
         // error: it would let a typo'd schema accept anything.

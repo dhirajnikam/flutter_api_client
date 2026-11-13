@@ -97,7 +97,7 @@ open coverage/html/index.html
 Run specific test file:
 
 ```bash
-flutter test test/api_result_test.dart
+flutter test test/core/api_result_test.dart
 ```
 
 Run with concurrency:
@@ -354,17 +354,19 @@ flutter_api_client/
 │   ├── flutter_api_client.dart     # Main export file
 │   └── src/
 │       ├── auth/                    # Authentication & token storage
-│       ├── core/                    # Core client & types
+│       ├── client/                  # ApiClient, its config, response decoding
+│       ├── core/                    # Shared types (results, errors, options)
 │       ├── gen/                     # Build runner & code generation
 │       ├── graphql/                 # GraphQL client
 │       ├── http/                    # HTTP adapters
-│       ├── interceptors/            # All interceptors
+│       ├── interceptors/            # Chain + cache, retry, dedup, breaker, logging
+│       ├── offline/                 # Offline queue, replay, optimistic mutations
 │       ├── response/                # Response handlers
 │       └── spec/                    # API spec & generators
 ├── test/                            # Tests mirror lib/ structure
 ├── example/                         # Demo app
 ├── bin/gen.dart                     # CLI for doc generation
-└── docs/                            # Documentation
+└── doc/                             # Documentation
 ```
 
 ## Areas for Contribution

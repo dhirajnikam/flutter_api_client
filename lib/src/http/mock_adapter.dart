@@ -1,7 +1,5 @@
-import 'dart:convert';
-import 'dart:typed_data';
-
 import 'http_adapter.dart';
+import 'mock_support.dart';
 
 /// Builds a canned response for a matched request.
 typedef MockResponder = Future<AdapterResponse> Function(AdapterRequest req);
@@ -56,23 +54,14 @@ class MockAdapter implements HttpAdapter {
     Map<String, String> headers = const {'content-type': 'application/json'},
     Duration? delay,
   }) {
-    final pattern = pathPattern is RegExp
-        ? pathPattern
-        : RegExp('^${RegExp.escape(pathPattern.toString())}\$');
-    routes.add(
-      MockRoute(
-        method: method,
-        path: pattern,
-        responder: (_) async {
-          if (delay != null) await Future.delayed(delay);
-          return AdapterResponse(
-            statusCode: statusCode,
-            headers: Map.of(headers),
-            bodyBytes: _encode(body),
-          );
-        },
-      ),
-    );
+    onRequest(method, pathPattern, (_) async {
+      if (delay != null) await Future.delayed(delay);
+      return AdapterResponse(
+        statusCode: statusCode,
+        headers: Map.of(headers),
+        bodyBytes: encodeMockBody(body),
+      );
+    });
   }
 
   /// Registers a route whose response is built dynamically by [responder].
@@ -90,20 +79,7 @@ class MockAdapter implements HttpAdapter {
     for (final r in routes) {
       if (r.matches(req)) return r.responder(req);
     }
-    return AdapterResponse(
-      statusCode: 404,
-      headers: const {'content-type': 'application/json'},
-      bodyBytes: _encode({
-        'message': 'No mock route for ${req.method} ${req.url.path}',
-      }),
-    );
-  }
-
-  Uint8List _encode(Object? body) {
-    if (body == null) return Uint8List(0);
-    if (body is String) return Uint8List.fromList(utf8.encode(body));
-    if (body is List<int>) return Uint8List.fromList(body);
-    return Uint8List.fromList(utf8.encode(jsonEncode(body)));
+    return notFoundResponse('mock route', req);
   }
 
   @override
