@@ -390,6 +390,37 @@ void main() {
           isNot(contains('x-session')));
     });
 
+    test(
+        'a caller-supplied credential is not persisted or logged when the '
+        'token is skipped', () async {
+      final store = InMemoryOfflineQueueStore();
+      final lines = <String>[];
+      final mock = MockAdapter()
+        ..onRequest('POST', RegExp(r'/todos$'),
+            (_) async => throw const NetworkError('offline'));
+      final client = ApiClient(ApiClientConfig(
+        baseUrl: 'https://api.example.com',
+        adapter: mock,
+        tokenStorage: MemoryTokenStorage(accessToken: 'stored-token'),
+        authHeaderName: 'X-Session',
+        interceptors: [
+          PrettyLogger(printer: lines.add, useColors: false),
+          OfflineQueueInterceptor(store: store, isOnline: () async => false),
+        ],
+      ));
+
+      await client.post<dynamic>(
+        'todos',
+        {'t': 1},
+        includeToken: false,
+        options: const RequestOptions(headers: {'X-Session': 'caller-secret'}),
+      );
+
+      final queued = (await store.peekAll()).single;
+      expect(queued.headers.values, isNot(contains('caller-secret')));
+      expect(lines.join('\n'), isNot(contains('caller-secret')));
+    });
+
     test('a request sent without the token is replayed without it', () async {
       final store = InMemoryOfflineQueueStore();
       var offline = true;

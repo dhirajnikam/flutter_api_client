@@ -47,13 +47,15 @@ class AuthInterceptor extends Interceptor {
 
   @override
   Future<InterceptorResult> onRequest(InterceptedRequest req) async {
+    // Recorded even when no token is attached: a caller may supply the header
+    // itself, and it must still be kept out of logs and the offline queue.
+    req.extra[credentialHeaderKey] = headerName;
     if (!req.options.includeToken) return ProceedResult(req);
     final token = await storage.getAccessToken();
     if (token != null && token.isNotEmpty) {
       req.headers[headerName] =
           authScheme.isEmpty ? token : '$authScheme $token';
       req.extra[_usedTokenKey] = token;
-      req.extra[credentialHeaderKey] = headerName;
     }
     return ProceedResult(req);
   }
