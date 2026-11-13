@@ -21,7 +21,6 @@ class InterceptorChain {
   /// reverse on the response/error side.
   InterceptorChain(this.interceptors);
 
-  /// The interceptors this chain coordinates.
   final List<Interceptor> interceptors;
 
   static const _depthExceeded =
@@ -62,6 +61,7 @@ class InterceptorChain {
       }
       switch (r) {
         case ProceedResult(:final request):
+          _carryState(current, request);
           current = request;
         case ResolveResult(:final response):
           return _afterResponse(current, response, transport, retryDepth);
@@ -114,10 +114,9 @@ class InterceptorChain {
           if (!allowProceed) throw error;
           return _handleError(req, transport, retryDepth, error);
         case ProceedResult(:final request):
-          // Restart the chain with the (possibly mutated) request. The
-          // current response is discarded, so drain it first.
           await _discard(current);
           if (!allowProceed) throw _depthExceeded;
+          _carryState(req, request);
           return run(
             request: request,
             transport: transport,
@@ -155,6 +154,7 @@ class InterceptorChain {
           );
         case ProceedResult(:final request):
           if (allowProceed) {
+            _carryState(req, request);
             return run(
               request: request,
               transport: transport,
@@ -169,6 +169,14 @@ class InterceptorChain {
       }
     }
     throw current;
+  }
+
+  /// Keeps interceptor state alive when an interceptor proceeds with a
+  /// request it built by hand instead of mutating or `copy()`ing [from].
+  /// Losing it would, for example, reset the retry counter on every attempt.
+  void _carryState(InterceptedRequest from, InterceptedRequest to) {
+    if (identical(from, to)) return;
+    from.extra.forEach((key, value) => to.extra.putIfAbsent(key, () => value));
   }
 
   /// Drains the body stream of a response that is being discarded, so the

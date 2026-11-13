@@ -1,24 +1,27 @@
 import 'dart:math';
 
 import '../../core/api_exception.dart';
+import '../../core/error_classification.dart';
 import '../../core/policies.dart';
 import '../../http/http_adapter.dart';
-import '../internal_headers.dart';
+import '../../core/headers.dart';
 
 /// Decides whether and when to retry a failed request.
 class RetryPolicy implements RetryPolicyInterface {
-  /// Creates a retry policy. See the field docs for each parameter's meaning.
   RetryPolicy({
     this.maxAttempts = 3,
     this.baseDelay = const Duration(milliseconds: 200),
     this.maxDelay = const Duration(seconds: 30),
-    this.retryOnStatus = const {408, 429, 500, 502, 503, 504},
+    this.retryOnStatus = _defaultRetryOnStatus,
     this.retryOnException = _defaultRetryOnException,
     this.useJitter = true,
     this.respectRetryAfter = true,
-    this.safeMethods = const {'GET', 'HEAD', 'OPTIONS'},
+    this.safeMethods = _defaultSafeMethods,
     this.backoff,
   });
+
+  static const _defaultRetryOnStatus = {408, 429, 500, 502, 503, 504};
+  static const _defaultSafeMethods = {'GET', 'HEAD', 'OPTIONS'};
 
   /// Maximum number of attempts (the initial try counts as attempt 1).
   final int maxAttempts;
@@ -57,7 +60,6 @@ class RetryPolicy implements RetryPolicyInterface {
   /// correlated jitter and fire in lockstep — defeating the point of jitter.
   static final Random _random = Random();
 
-  /// Exponential backoff convenience factory.
   factory RetryPolicy.exponential({
     int maxAttempts = 3,
     Duration baseDelay = const Duration(milliseconds: 200),
@@ -69,8 +71,8 @@ class RetryPolicy implements RetryPolicyInterface {
         maxAttempts: maxAttempts,
         baseDelay: baseDelay,
         maxDelay: maxDelay,
-        retryOnStatus: retryOnStatus ?? const {408, 429, 500, 502, 503, 504},
-        safeMethods: safeMethods ?? const {'GET', 'HEAD', 'OPTIONS'},
+        retryOnStatus: retryOnStatus ?? _defaultRetryOnStatus,
+        safeMethods: safeMethods ?? _defaultSafeMethods,
       );
 
   /// Whether a response with this status should be retried at [attempt].
@@ -78,19 +80,16 @@ class RetryPolicy implements RetryPolicyInterface {
     AdapterResponse res,
     int attempt, {
     String method = 'GET',
-  }) {
-    if (attempt >= maxAttempts) return false;
-    if (!safeMethods.contains(method.toUpperCase())) return false;
-    return retryOnStatus.contains(res.statusCode);
-  }
+  }) =>
+      _mayRetry(attempt, method) && retryOnStatus.contains(res.statusCode);
 
   /// Whether a thrown [ApiException] should be retried at [attempt].
   bool shouldRetryError(ApiException err, int attempt,
-      {String method = 'GET'}) {
-    if (attempt >= maxAttempts) return false;
-    if (!safeMethods.contains(method.toUpperCase())) return false;
-    return retryOnException(err);
-  }
+          {String method = 'GET'}) =>
+      _mayRetry(attempt, method) && retryOnException(err);
+
+  bool _mayRetry(int attempt, String method) =>
+      attempt < maxAttempts && safeMethods.contains(method.toUpperCase());
 
   /// Delay before the next attempt: honors `Retry-After` from [res] when
   /// enabled, otherwise exponential backoff with optional jitter, capped at
@@ -116,9 +115,7 @@ class RetryPolicy implements RetryPolicyInterface {
     }
     final capped = raw > maxDelay ? maxDelay : raw;
     if (!useJitter) return capped;
-    // Full jitter: uniform in [0, capped]. Decorrelates concurrent retries
-    // far better than the old additive `capped + small offset`, which also
-    // could exceed maxDelay.
+    // Full jitter: uniform in [0, capped], so it never exceeds maxDelay.
     final jittered = (_random.nextDouble() * capped.inMilliseconds).round();
     return Duration(milliseconds: jittered);
   }
@@ -171,5 +168,4 @@ class RetryPolicy implements RetryPolicyInterface {
   }
 }
 
-bool _defaultRetryOnException(ApiException error) =>
-    error is NetworkError || error is TimeoutError;
+bool _defaultRetryOnException(ApiException error) => error.isTransient;

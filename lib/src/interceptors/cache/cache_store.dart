@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 /// A cached HTTP response entry.
 class CacheEntry {
-  /// Creates an entry stored under [key], captured at [savedAt].
   CacheEntry({
     required this.key,
     required this.statusCode,
@@ -15,13 +14,10 @@ class CacheEntry {
   /// Identity key this entry is stored under (see `requestIdentityKey`).
   final String key;
 
-  /// Cached response status code.
   final int statusCode;
 
-  /// Cached response headers.
   final Map<String, String> headers;
 
-  /// Cached response body bytes.
   final Uint8List bodyBytes;
 
   /// When this entry was written; freshness is measured from here.
@@ -32,14 +28,10 @@ class CacheEntry {
 
   /// Whether the entry is still within its [ttl] freshness window.
   ///
-  /// A zero (or negative) [ttl] is never fresh. Without the explicit check a
-  /// zero TTL was *sometimes* fresh: `DateTime.now()` can return the same
-  /// instant it did when the entry was written, making the elapsed time `0`,
-  /// and `0 <= 0` reads as fresh. That made
-  /// `CachePolicy.staleWhileRevalidate(Duration.zero)` — the documented
-  /// fallback-only configuration — serve the cache on the request path
-  /// depending on clock resolution and machine load. Non-zero TTLs keep the
-  /// inclusive bound they always had.
+  /// A zero (or negative) [ttl] is never fresh, even when `DateTime.now()`
+  /// returns the very instant the entry was written, so
+  /// `CachePolicy.staleWhileRevalidate(Duration.zero)` stays fallback-only
+  /// regardless of clock resolution. A non-zero [ttl] is an inclusive bound.
   bool isFresh(Duration ttl) =>
       ttl > Duration.zero && DateTime.now().difference(savedAt) <= ttl;
 }

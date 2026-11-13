@@ -8,6 +8,9 @@ library;
 
 import 'dart:convert';
 
+import '../interceptor.dart';
+import '../internal_headers.dart';
+
 /// Normalizes a body key for redaction matching: keeps ASCII letters and
 /// digits, lowercases letters, and drops everything else (`-`, `_`, spaces…).
 String normalizeBodyKey(String key) {
@@ -55,4 +58,59 @@ String redactJsonBody(String body, Set<String> normalizedRedactKeys) {
   } catch (_) {
     return body;
   }
+}
+
+/// Header names the loggers redact unless told otherwise.
+const Set<String> defaultRedactHeaders = {
+  'authorization',
+  'cookie',
+  'set-cookie',
+  'proxy-authorization',
+  'x-api-key',
+  'x-auth-token',
+};
+
+/// JSON body keys the loggers redact unless told otherwise.
+const Set<String> defaultRedactBodyKeys = {
+  'password',
+  'passwd',
+  'pwd',
+  'secret',
+  'token',
+  'access_token',
+  'refresh_token',
+  'api_key',
+  'apikey',
+  'client_secret',
+  'credit_card',
+  'card_number',
+};
+
+/// Replaces secrets in what a logger is about to print.
+class Redactor {
+  /// [headers] are matched case-insensitively, [bodyKeys] case- and
+  /// separator-insensitively, so callers need not normalize either set.
+  Redactor({required Set<String> headers, required Set<String> bodyKeys})
+      : _headers = {for (final name in headers) name.toLowerCase()},
+        _bodyKeys = {for (final key in bodyKeys) normalizeBodyKey(key)};
+
+  final Set<String> _headers;
+  final Set<String> _bodyKeys;
+
+  /// The value to print for header [name].
+  String header(String name, String value) =>
+      _headers.contains(name.toLowerCase()) ? '<redacted>' : value;
+
+  /// The value to print for header [name] of [req]; also hides the header the
+  /// auth interceptor wrote the token to.
+  String requestHeader(InterceptedRequest req, String name, String value) =>
+      isCredentialHeader(req, name) ? '<redacted>' : header(name, value);
+
+  /// [body] with secret values replaced; unchanged if it is not JSON.
+  String jsonBody(String body) =>
+      _bodyKeys.isEmpty ? body : redactJsonBody(body, _bodyKeys);
+
+  /// The redacted text to print for request payload [data].
+  String requestBody(Object data) =>
+      jsonBody(data is String ? data : jsonEncode(data));
 }

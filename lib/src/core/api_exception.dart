@@ -5,10 +5,8 @@
 sealed class ApiException implements Exception {
   const ApiException(this.message, {this.cause, this.stackTrace});
 
-  /// Human readable error message.
   final String message;
 
-  /// Underlying error if any.
   final Object? cause;
 
   /// Stack trace captured when the exception was created.
@@ -60,7 +58,6 @@ final class HttpError extends ApiException {
   /// The decoded error body, if any (shape depends on the response).
   final dynamic body;
 
-  /// The response headers.
   final Map<String, String> headers;
 }
 

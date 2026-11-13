@@ -7,7 +7,6 @@ import 'cache_store.dart';
 /// count alone is a poor proxy for memory when bodies range from a few
 /// hundred bytes to several megabytes.
 class MemoryCacheStore implements EnumerableCacheStore {
-  /// Creates a store bounded by [maxEntries] and, optionally, [maxBytes].
   MemoryCacheStore({this.maxEntries = 256, this.maxBytes});
 
   /// Maximum number of entries kept before the least-recently-used is evicted.

@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
-import '../core/api_client.dart';
+import '../client/api_client.dart';
 import '../core/api_exception.dart';
 import '../core/request_options.dart';
 import 'graphql_error.dart';
@@ -29,7 +29,6 @@ class GraphQLClient {
     this.hashQuery,
   });
 
-  /// Underlying HTTP client.
   final ApiClient client;
 
   /// Path appended to the client's base URL. Defaults to `/graphql`.
@@ -97,51 +96,31 @@ class GraphQLClient {
     RequestOptions? options,
     required bool includeToken,
   }) async {
-    if (usePersistedQueries) {
-      final hash = (hashQuery ?? _defaultHash)(document);
-      final firstAttempt = await _post<T>(
-        payload: {
-          if (operationName != null) 'operationName': operationName,
-          if (variables != null) 'variables': variables,
-          'extensions': {
-            'persistedQuery': {'version': 1, 'sha256Hash': hash},
+    Future<GraphQLResponse<T>> post({String? document, String? hash}) =>
+        _post<T>(
+          payload: {
+            if (document != null) 'query': document,
+            if (variables != null) 'variables': variables,
+            if (operationName != null) 'operationName': operationName,
+            if (hash != null)
+              'extensions': {
+                'persistedQuery': {'version': 1, 'sha256Hash': hash},
+              },
           },
-        },
-        decoder: decoder,
-        options: options,
-        includeToken: includeToken,
-      );
-      if (!firstAttempt.errors.any(_isPersistedQueryMiss)) return firstAttempt;
-      // APQ cache miss: resend the full document AND the hash so the server
-      // registers it for future requests. Sending the document without the
-      // hash would defeat APQ entirely — every subsequent call would miss and
-      // pay the round-trip again.
-      return _post<T>(
-        payload: {
-          ..._buildPayload(
-            document: document,
-            variables: variables,
-            operationName: operationName,
-          ),
-          'extensions': {
-            'persistedQuery': {'version': 1, 'sha256Hash': hash},
-          },
-        },
-        decoder: decoder,
-        options: options,
-        includeToken: includeToken,
-      );
-    }
-    return _post<T>(
-      payload: _buildPayload(
-        document: document,
-        variables: variables,
-        operationName: operationName,
-      ),
-      decoder: decoder,
-      options: options,
-      includeToken: includeToken,
-    );
+          decoder: decoder,
+          options: options,
+          includeToken: includeToken,
+        );
+
+    if (!usePersistedQueries) return post(document: document);
+    final hash = (hashQuery ?? _defaultHash)(document);
+    final hashOnly = await post(hash: hash);
+    if (!hashOnly.errors.any(_isPersistedQueryMiss)) return hashOnly;
+    // APQ cache miss: resend the full document AND the hash so the server
+    // registers it for future requests. Sending the document without the
+    // hash would defeat APQ entirely — every subsequent call would miss and
+    // pay the round-trip again.
+    return post(document: document, hash: hash);
   }
 
   /// True when a GraphQL error signals an APQ cache miss that must be retried
@@ -161,17 +140,6 @@ class GraphQLClient {
         msg == 'PersistedQueryNotSupported';
   }
 
-  Map<String, Object?> _buildPayload({
-    required String document,
-    Map<String, dynamic>? variables,
-    String? operationName,
-  }) =>
-      {
-        'query': document,
-        if (variables != null) 'variables': variables,
-        if (operationName != null) 'operationName': operationName,
-      };
-
   Future<GraphQLResponse<T>> _post<T>({
     required Map<String, Object?> payload,
     GraphQLDecoder<T>? decoder,
@@ -184,14 +152,21 @@ class GraphQLClient {
       includeToken: includeToken,
       options: options,
     );
-    if (!raw.isSuccess && (raw.statusCode ?? 0) == 0) {
-      return GraphQLResponse<T>(
-        statusCode: 0,
-        data: null,
-        errors: const [],
-        isSuccess: false,
-        networkError: NetworkError(raw.errorMessage ?? 'transport error'),
-      );
+    final statusCode = raw.statusCode ?? 0;
+    GraphQLResponse<T> failed(
+      ApiException error, [
+      List<GraphQLError> errors = const [],
+    ]) =>
+        GraphQLResponse<T>(
+          statusCode: statusCode,
+          data: null,
+          errors: errors,
+          isSuccess: false,
+          networkError: error,
+        );
+
+    if (!raw.isSuccess && statusCode == 0) {
+      return failed(raw.error ?? const NetworkError('transport error'));
     }
     // For non-2xx HTTP responses, body lives in HttpError.body. Guard the cast:
     // a non-object error body (List/scalar/text) is not a GraphQL envelope, so
@@ -206,7 +181,7 @@ class GraphQLClient {
       // body was not a JSON object), surface it so callers have something to
       // log instead of an empty response that silently drops the cause.
       return GraphQLResponse<T>(
-        statusCode: raw.statusCode ?? 0,
+        statusCode: statusCode,
         data: null,
         errors: const [],
         isSuccess: raw.isSuccess,
@@ -224,49 +199,28 @@ class GraphQLClient {
     final dataRaw = body['data'];
     T? data;
     if (dataRaw != null) {
-      if (decoder != null) {
-        try {
-          data = decoder(dataRaw as Object);
-        } catch (e, st) {
-          return GraphQLResponse<T>(
-            statusCode: raw.statusCode ?? 0,
-            data: null,
-            errors: errors,
-            isSuccess: false,
-            networkError: ParseError(
-              'GraphQL decoder failed: $e',
-              cause: e,
-              stackTrace: st,
-            ),
-          );
-        }
-      } else {
-        try {
-          data = dataRaw as T?;
-        } on TypeError catch (e, st) {
-          // No decoder supplied and the raw `data` field does not match the
-          // requested `T`. Surface a typed ParseError instead of letting a
-          // TypeError escape `query`/`mutation`, which would violate their
-          // contract of always returning a GraphQLResponse.
-          return GraphQLResponse<T>(
-            statusCode: raw.statusCode ?? 0,
-            data: null,
-            errors: errors,
-            isSuccess: false,
-            networkError: ParseError(
-              'GraphQL `data` could not be cast to the expected type. '
-              'Supply a `decoder` for non-primitive types.',
-              cause: e,
-              stackTrace: st,
-            ),
-          );
-        }
+      try {
+        data = decoder != null ? decoder(dataRaw as Object) : dataRaw as T?;
+      } catch (e, st) {
+        // Reported rather than thrown: `query`/`mutation` always return a
+        // GraphQLResponse.
+        return failed(
+          ParseError(
+            decoder != null
+                ? 'GraphQL decoder failed: $e'
+                : 'GraphQL `data` could not be cast to the expected type. '
+                    'Supply a `decoder` for non-primitive types.',
+            cause: e,
+            stackTrace: st,
+          ),
+          errors,
+        );
       }
     }
 
     final extensions = (body['extensions'] as Map?)?.cast<String, Object?>();
     return GraphQLResponse<T>(
-      statusCode: raw.statusCode ?? 0,
+      statusCode: statusCode,
       data: data,
       errors: errors,
       isSuccess: raw.isSuccess && errors.isEmpty,
@@ -275,7 +229,5 @@ class GraphQLClient {
   }
 }
 
-/// SHA-256 hex digest of the query document — the hash APQ servers key their
-/// document registry by, so the persisted-query fast path can match.
 String _defaultHash(String document) =>
     sha256.convert(utf8.encode(document)).toString();

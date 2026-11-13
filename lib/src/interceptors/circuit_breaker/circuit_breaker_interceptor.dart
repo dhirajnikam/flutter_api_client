@@ -1,6 +1,5 @@
-import 'dart:math';
-
 import '../../core/api_exception.dart';
+import '../../core/error_classification.dart';
 import '../../http/http_adapter.dart';
 import '../interceptor.dart';
 import '../internal_headers.dart';
@@ -54,7 +53,6 @@ enum CircuitState {
 /// Cancellation ([CancelError]) and 4xx responses are not failures — they
 /// prove the origin is reachable (or say nothing about it).
 class CircuitBreakerInterceptor extends Interceptor {
-  /// Creates a breaker with the given thresholds.
   CircuitBreakerInterceptor({
     this.failureThreshold = 5,
     this.cooldown = const Duration(seconds: 30),
@@ -87,10 +85,7 @@ class CircuitBreakerInterceptor extends Interceptor {
 
   final Map<String, _Circuit> _circuits = {};
 
-  /// Internal header carrying the admitted probe's token; stripped before
-  /// transport (see `request_identity.dart`).
-  static const _probeHeader = 'x-fac-circuit-probe';
-  static final _random = Random.secure();
+  static final _probeKey = Object();
 
   /// Rejections this breaker fabricated itself, so the chain's own onError pass
   /// over this interceptor does not count a fail-fast rejection as another
@@ -117,40 +112,35 @@ class CircuitBreakerInterceptor extends Interceptor {
         // go unrecorded (e.g. cancelled), so after another cooldown let a new
         // probe through instead of staying half-open forever.
         if (_now().isBefore(circuit.reopenAt!)) return _rejectFast(req);
-        return _admitProbe(req, circuit); // a fresh probe
+        return _admitProbe(req, circuit);
       case CircuitState.open:
         if (_now().isBefore(circuit.reopenAt!)) return _rejectFast(req);
         _transition(_key(req), circuit, CircuitState.halfOpen);
-        return _admitProbe(req, circuit); // the probe
+        return _admitProbe(req, circuit);
     }
   }
 
   /// Whether [req] is the current probe (its retries may pass the hold-back).
   bool _isProbe(InterceptedRequest req, _Circuit circuit) =>
-      circuit.probe != null &&
-      headerValue(req.headers, _probeHeader) == circuit.probe;
+      circuit.probe != null && req.extra[_probeKey] == circuit.probe;
 
   /// Whether [req] is any probe admitted since the circuit last closed. A probe
   /// replaced after its lease ran out still reports a real origin outcome, so
   /// a slow but healthy origin can close the circuit.
   bool _isAnyProbe(InterceptedRequest req, _Circuit circuit) {
-    final token = headerValue(req.headers, _probeHeader);
+    final token = req.extra[_probeKey];
     return token != null && circuit.probes.contains(token);
   }
 
   /// Starts the probe's lease and tags [req] so its retries are recognised.
-  /// The token is random so a caller-supplied header cannot guess its way past
-  /// the hold-back.
   InterceptorResult _admitProbe(InterceptedRequest req, _Circuit circuit) {
     circuit
       ..reopenAt = _now().add(cooldown)
-      ..probe = _random.nextInt(0xFFFFFFFF).toRadixString(36);
+      ..probe = Object();
     circuit.probes.add(circuit.probe!);
     // Bounded: a probe older than this many leases is treated as stale.
     if (circuit.probes.length > 16) circuit.probes.removeAt(0);
-    req.headers
-      ..removeWhere((k, _) => k.toLowerCase() == _probeHeader)
-      ..[_probeHeader] = circuit.probe!;
+    req.extra[_probeKey] = circuit.probe;
     return ProceedResult(req);
   }
 
@@ -161,9 +151,7 @@ class CircuitBreakerInterceptor extends Interceptor {
   ) async {
     // A response the cache served locally (a hit, or the synthetic 504 of a
     // cacheOnly miss) says nothing about the origin.
-    if (headerValue(res.headers, cacheHitHeader) != null) {
-      return ResolveResult(res);
-    }
+    if (isCacheFabricated(res)) return ResolveResult(res);
     // 5xx counts as a failure (the origin is unhealthy); anything else —
     // including 4xx — proves the origin is up and resets the circuit.
     _record(req, failure: res.statusCode >= 500);
@@ -176,9 +164,7 @@ class CircuitBreakerInterceptor extends Interceptor {
     ApiException error,
   ) async {
     if (_isSynthetic(error)) return RejectResult(error);
-    if (error is NetworkError || error is TimeoutError) {
-      _record(req, failure: true);
-    }
+    if (error.isTransient) _record(req, failure: true);
     // CancelError and every other error type says nothing about origin
     // health; leave the circuit untouched.
     return RejectResult(error);
@@ -268,6 +254,6 @@ class _Circuit {
   CircuitState state = CircuitState.closed;
   int consecutiveFailures = 0;
   DateTime? reopenAt;
-  String? probe; // token of the current half-open probe
-  final List<String> probes = []; // tokens admitted since the last close
+  Object? probe; // token of the current half-open probe
+  final List<Object> probes = []; // tokens admitted since the last close
 }

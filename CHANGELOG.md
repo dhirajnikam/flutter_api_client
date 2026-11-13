@@ -1,3 +1,84 @@
+## 1.9.0
+
+**Release Date**: 2026-11-13  
+**Type**: Minor Release (additive API, deprecations, bug fixes, internal restructuring)  
+**Breaking Changes**: None (backward compatible with 1.8.0). No exported name
+was removed or changed. Note that `ApiClient` gained a method, so a test fake
+written as `implements ApiClient` must add `request`.
+
+### Added
+
+* **`ApiClient.request<T>(method, endpoint, ...)`** — send with an arbitrary
+  HTTP method. `get`/`post`/`put`/`patch`/`delete`/`query` are shorthands for
+  it.
+* **`InterceptedRequest.extra`** — per-request scratch space for interceptors.
+  State that must survive a chain restart (attempt counters, "already
+  refreshed") lives here instead of in request headers, so it can never reach
+  the origin, a log line, or a cache/dedup key.
+
+### Deprecated
+
+All of these keep working and will be removed in 2.0.0:
+
+* `ClientCustomization` (and the `customization:` parameter of the
+  `ApiClientConfig` factories) — pass the options to the `ApiClientConfig`
+  constructor.
+* `OfflineAutoReplay` — use `OfflineSyncManager`.
+* `RetryPolicyInterface` / `CachePolicyInterface` — `RequestOptions.retryPolicy`
+  and `cachePolicy` will be typed as `RetryPolicy` and `CachePolicy`.
+* `RequestOptions.tag`, `ResponseType.stream` (same as `bytes`),
+  `GraphQLException` (never thrown).
+* `ApiResult.dataOrNull` / `errorOrNull` — use `data` / `error`.
+* `CachedTokenStorage.updateAccessToken` / `updateRefreshToken` — use
+  `setAccessToken` / `setRefreshToken`.
+
+### Fixed
+
+* A custom `authHeaderName` no longer leaks the token: the offline queue never
+  persists that header and the bundled loggers redact it, without it having to
+  be added to `redactHeaders`.
+* A request sent with `includeToken: false` is replayed without the token
+  (new `QueuedRequest.includeToken`, default `true`; older persisted records
+  behave as before).
+* Cache and dedup keys carry a SHA-256 digest of the credential instead of the
+  token itself, so durable cache stores no longer write the bearer token to
+  disk. `HiveCacheStore` files records under a digest of the key, lifting
+  Hive's 255-character key limit. Existing persisted cache entries are not
+  matched after upgrading; clear the box once to drop them.
+* `GraphQLResponse.networkError` keeps the original error type
+  (`TimeoutError`, `CancelError`, …) instead of always being a `NetworkError`.
+* `PrettyLogger` redacts a response body before truncating it, so secrets in
+  bodies longer than the preview are no longer printed.
+
+### Changed
+
+* Every request header starting with `x-fac-` is reserved and stripped before
+  transport (previously a fixed list of names).
+* The bundled interceptors no longer write `x-fac-*` request headers; loggers
+  therefore no longer print them. The `x-fac-cache-hit` response header is
+  unchanged.
+* `OfflineMutations.mutate` now persists the request's query parameters and
+  base-URL override, so a queued mutation replays against the same URL as the
+  original send (it previously dropped both).
+* `OfflineQueueReplayer` sends each record with its stored method as-is (an
+  unknown method used to be sent as `POST`), and a throwing `onOutcome` on a
+  re-enqueued request aborts the pass as documented instead of being counted
+  as a dead letter.
+* `GraphQLClient`'s hash-only persisted-query request lists `variables` before
+  `operationName` in its JSON body (same content, different key order).
+* `CurlLogger` with an empty `redactBodyKeys` prints a JSON string body as
+  given instead of re-encoding it.
+* `RetryInterceptor` never retries a response the cache produced locally
+  (any response carrying `x-fac-cache-hit`); it used to skip only the
+  synthetic `cacheOnly` 504.
+* `DedupInterceptor` no longer leaks its in-flight entry (stalling later
+  identical requests for `waitTimeout`) when an interceptor placed after it
+  changes a header between a request and its retry.
+* A request retried by an interceptor placed before `DedupInterceptor` is
+  deduplicated again, and no longer releases another in-flight request's
+  entry when it completes.
+* Removed the unused `collection` dependency.
+
 ## 1.8.0
 
 **Release Date**: 2026-11-05  

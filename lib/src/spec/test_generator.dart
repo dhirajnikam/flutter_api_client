@@ -1,4 +1,6 @@
 import 'api_spec.dart';
+import 'path_placeholder.dart';
+import 'spec_text.dart';
 
 /// Generates a complete, runnable `*_test.dart` from an [ApiSpec].
 ///
@@ -24,10 +26,6 @@ class TestGenerator {
   /// Identifier of the spec variable referenced by the generated tests.
   final String specSymbol;
 
-  // Fixed patterns reused across every endpoint — compiled once.
-  static final RegExp _placeholder = RegExp(r'\{[^}]+\}');
-  static final RegExp _leadingSlash = RegExp(r'^/');
-
   /// Renders a complete, runnable `*_test.dart` source as a string.
   ///
   /// The output is `dart format`-clean on the first pass: test blocks are
@@ -44,17 +42,9 @@ class TestGenerator {
       header.writeln("import '${_escapeDartString(specImport!)}';");
     }
 
-    final byTag = <String, List<EndpointSpec>>{};
-    for (final ep in spec.endpoints) {
-      byTag.putIfAbsent(ep.tag ?? 'General', () => []).add(ep);
-    }
-
     final groups = <String>[];
-    byTag.forEach((tag, endpoints) {
-      final blocks = [
-        for (final ep in endpoints) ..._endpointTestBlocks(ep),
-      ];
-      final body = blocks.join('\n\n');
+    endpointsByTag(spec).forEach((tag, endpoints) {
+      final body = endpoints.expand(_endpointTestBlocks).join('\n\n');
       groups.add("  group('${_escapeDartString(tag)}', () {\n$body\n  });");
     });
 
@@ -87,22 +77,26 @@ class TestGenerator {
             '${ep.method.toLowerCase()}() method.',
       ];
     }
-    final baseUrl = spec.baseUrl;
-    final methodKey = _escapeDartString('${ep.method} ${ep.path}');
+    // Doubles as the test title prefix and the `statusOverrides` key.
     final title = _escapeDartString('${ep.method} ${ep.path}');
-    final concretePath = ep.path
-        .replaceAllMapped(_placeholder, (_) => '1')
-        .replaceFirst(_leadingSlash, '');
-    final blocks = <String>[];
+    final filled = ep.path.replaceAll(pathPlaceholder, '1');
+    final concretePath = filled.startsWith('/') ? filled.substring(1) : filled;
 
-    // Happy path
-    blocks.add([
-      "    test('$title — happy path', () async {",
-      _clientSetup(baseUrl, null),
-      _callLine(ep, concretePath),
-      '      expect(res.isSuccess, true);',
-      '    });',
-    ].join('\n'));
+    String block(
+      String name,
+      String expectation, {
+      int? override,
+      String? bodyLiteral,
+    }) =>
+        [
+          "    test('$title — $name', () async {",
+          _clientSetup(override == null ? null : "'$title': $override"),
+          _callLine(ep, concretePath, bodyLiteral: bodyLiteral),
+          '      expect($expectation);',
+          '    });',
+        ].join('\n');
+
+    final blocks = [block('happy path', 'res.isSuccess, true')];
 
     // Schema validation failure. Only meaningful when the verb carries a body
     // and the schema actually rejects an empty object (i.e. it has at least
@@ -114,41 +108,33 @@ class TestGenerator {
     if (schema != null &&
         hasRequiredMember &&
         _bodyMethods.contains(ep.method.toUpperCase())) {
-      blocks.add([
-        "    test('$title — schema validation rejects bad body', () async {",
-        _clientSetup(baseUrl, null),
-        _callLine(ep, concretePath, bodyLiteral: '<String, dynamic>{}'),
-        '      expect(res.statusCode, 422);',
-        '    });',
-      ].join('\n'));
+      blocks.add(block(
+        'schema validation rejects bad body',
+        'res.statusCode, 422',
+        bodyLiteral: '<String, dynamic>{}',
+      ));
     }
 
-    // Auth required
     if (ep.auth) {
-      blocks.add([
-        "    test('$title — auth required returns 401', () async {",
-        _clientSetup(baseUrl, "'$methodKey': 401"),
-        _callLine(ep, concretePath),
-        '      expect(res.statusCode, 401);',
-        '    });',
-      ].join('\n'));
+      blocks.add(block(
+        'auth required returns 401',
+        'res.statusCode, 401',
+        override: 401,
+      ));
     }
 
-    // Explicit error responses
     for (final r in ep.responses.where((r) => !r.isSuccess)) {
-      blocks.add([
-        "    test('$title — returns ${r.statusCode}', () async {",
-        _clientSetup(baseUrl, "'$methodKey': ${r.statusCode}"),
-        _callLine(ep, concretePath),
-        '      expect(res.statusCode, ${r.statusCode});',
-        '    });',
-      ].join('\n'));
+      blocks.add(block(
+        'returns ${r.statusCode}',
+        'res.statusCode, ${r.statusCode}',
+        override: r.statusCode,
+      ));
     }
 
     return blocks;
   }
 
-  String _clientSetup(String baseUrl, String? statusOverride) {
+  String _clientSetup(String? statusOverride) {
     // Emitted in the fully-expanded form Dart's formatter produces for a nested
     // constructor call, so the generated file is `dart format`-clean up front.
     final adapter = statusOverride == null
@@ -159,7 +145,7 @@ class TestGenerator {
             '          )';
     return '      final client = ApiClient(\n'
         '        ApiClientConfig.test(\n'
-        "          baseUrl: '${_escapeDartString(baseUrl)}',\n"
+        "          baseUrl: '${_escapeDartString(spec.baseUrl)}',\n"
         '          adapter: $adapter,\n'
         '        ),\n'
         '      );';

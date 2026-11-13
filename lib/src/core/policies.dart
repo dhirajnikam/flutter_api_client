@@ -10,8 +10,16 @@ library;
 /// Implemented by `RetryPolicy` in
 /// `interceptors/retry/retry_policy.dart`. Lets a [RequestOptions] carry a
 /// per-request retry policy with compile-time safety.
+@Deprecated(
+  'RequestOptions.retryPolicy will be typed as RetryPolicy. To be '
+  'removed in 2.0.0.',
+)
 abstract interface class RetryPolicyInterface {}
 
 /// Implemented by `CachePolicy` in
 /// `interceptors/cache/cache_policy.dart`. See [RetryPolicyInterface].
+@Deprecated(
+  'RequestOptions.cachePolicy will be typed as CachePolicy. To be '
+  'removed in 2.0.0.',
+)
 abstract interface class CachePolicyInterface {}

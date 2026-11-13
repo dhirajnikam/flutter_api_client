@@ -5,14 +5,14 @@ enum CacheMode { networkFirst, cacheFirst, staleWhileRevalidate, cacheOnly }
 
 /// How the [CacheInterceptor] should treat a given request.
 class CachePolicy implements CachePolicyInterface {
-  /// Creates a policy with an explicit [mode].
   const CachePolicy({
     required this.mode,
-    this.ttl = const Duration(minutes: 5),
+    this.ttl = _defaultTtl,
     this.useEtag = true,
   });
 
-  /// The read/write strategy to apply.
+  static const _defaultTtl = Duration(minutes: 5);
+
   final CacheMode mode;
 
   /// How long a cached entry is considered fresh before it must revalidate.
@@ -24,12 +24,12 @@ class CachePolicy implements CachePolicyInterface {
 
   /// Always hit the network, falling back to the cache on failure.
   factory CachePolicy.networkFirst({
-    Duration ttl = const Duration(minutes: 5),
+    Duration ttl = _defaultTtl,
   }) =>
       CachePolicy(mode: CacheMode.networkFirst, ttl: ttl);
 
   /// Serve a fresh cached entry without a network call; otherwise fetch.
-  factory CachePolicy.cacheFirst({Duration ttl = const Duration(minutes: 5)}) =>
+  factory CachePolicy.cacheFirst({Duration ttl = _defaultTtl}) =>
       CachePolicy(mode: CacheMode.cacheFirst, ttl: ttl);
 
   /// Serve a fresh cached entry immediately; when the entry is stale,

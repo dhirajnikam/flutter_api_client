@@ -10,8 +10,6 @@ import 'token_storage.dart';
 /// delegate write is reported through [onWriteError] (and otherwise swallowed
 /// so it never surfaces as an unhandled zone error).
 class CachedTokenStorage implements TokenStorage {
-  /// Wraps `delegate`, caching its tokens in memory. [onWriteError] receives
-  /// errors from background delegate writes; when omitted they are dropped.
   CachedTokenStorage(this._delegate, {this.onWriteError});
 
   final TokenStorage _delegate;
@@ -73,9 +71,15 @@ class CachedTokenStorage implements TokenStorage {
   /// Fire-and-forget alias for [setAccessToken] when the caller does not need
   /// the [Future]: updates the cache immediately and persists in the
   /// background.
+  @Deprecated(
+    'Use setAccessToken. To be removed in 2.0.0.',
+  )
   void updateAccessToken(String? token) => setAccessToken(token);
 
   /// Fire-and-forget alias for [setRefreshToken]; see [updateAccessToken].
+  @Deprecated(
+    'Use setRefreshToken. To be removed in 2.0.0.',
+  )
   void updateRefreshToken(String? token) => setRefreshToken(token);
 
   /// Drops the in-memory cache. Next read will hit the delegate.

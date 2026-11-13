@@ -26,3 +26,10 @@ MEMORY.md
 # Consumer-facing docs live in README.md, CHANGELOG.md, dartdoc on the public
 # API, and the example/ app — none of doc/ is needed by package users.
 doc/
+
+# Local-only files (mirrors .gitignore; see the note at the top)
+*.log
+.DS_Store
+.worktrees/
+.claude/
+*.vsix

@@ -40,7 +40,6 @@
 ///
 /// ### Testing
 /// - [MockAdapter]: Route-based mocking with request capture
-/// - Built-in test suite with 500+ passing tests
 /// - No external mock dependencies
 ///
 /// ## Quick Start
@@ -50,7 +49,7 @@
 ///   ApiClientConfig(
 ///     baseUrl: 'https://api.example.com',
 ///     interceptors: [
-///       RetryInterceptor(),
+///       RetryInterceptor(policy: RetryPolicy()),
 ///       CacheInterceptor(store: MemoryCacheStore()),
 ///       PrettyLogger(),
 ///     ],
@@ -64,88 +63,10 @@
 /// );
 /// ```
 ///
-/// ## Version 1.8.0
-/// - [NetworkError.sent]: `false` marks a request that provably never left the
-///   device (e.g. a circuit-breaker rejection); replay re-enqueues it without
-///   consuming an attempt, and the opt-in
-///   [OfflineQueueReplayer.neverSentMaxAge] bounds how long it is kept
-/// - [CircuitBreakerInterceptor]: only probes move an open or half-open
-///   circuit, a failed probe reopens it under `[breaker, retry]`, cache-served
-///   responses are ignored, and cooldowns use a monotonic (injectable) clock
-/// - Fixed: malformed internal retry-attempt headers could inflate or extend
-///   the retry count
-///
-/// ## Version 1.7.0
-/// - Per-request replay safety ([QueuedRequest.replaySafety] / [ReplaySafety],
-///   [OfflineQueueInterceptor.replaySafetyOf]): opt a non-idempotent write out
-///   of at-least-once replay so an interrupted pass cannot duplicate it,
-///   without putting the whole queue on the lossy drain path
-/// - Selective cache invalidation ([CacheInterceptor.evictWhere] /
-///   `evictEndpoint`) backed by the optional [EnumerableCacheStore] capability
-///   — drop one stale endpoint without clearing the store
-/// - Fixed: replaying through the client the offline interceptor is attached to
-///   re-queued every failed replay, doubling the queue on each pass and
-///   resetting attempt counts so `maxAttempts` never dead-lettered
-/// - Fixed: a zero cache TTL sometimes read as fresh (`0 <= 0`), so
-///   `staleWhileRevalidate(Duration.zero)` served the cache on the request path
-///   depending on clock resolution
-///
-/// ## Version 1.6.0
-/// - Optimistic offline mutations via [OfflineMutations]: `apply`/`rollback`
-///   callbacks update local data immediately and queue the API call for replay
-///   when offline (model-agnostic — works with any store)
-/// - Replay priority ([QueuedRequest.priority], [OfflineQueueInterceptor.priorityOf])
-///   and full custom ordering ([OfflineQueueReplayer.compare])
-/// - Replay outcome hook ([OfflineQueueReplayer.onOutcome] + [ReplayOutcome])
-/// - [OfflineAutoReplay]: replays the queue on reconnect from any
-///   `Stream<bool>` connectivity source (no dependency bundled)
-///
-/// ## Version 1.5.0
-/// - [HiveCacheStore]: persistent response cache — offline reads survive
-///   app restarts
-/// - [OfflineSyncManager]: auto-replays the offline queue from any
-///   `Stream<bool>` connectivity signal, with retry scheduling
-/// - [CircuitBreakerInterceptor]: per-host fail-fast when an origin is down
-///   (closed → open → half-open probe)
-/// - `ApiResult` helpers: `flatMap`, `mapError`, `getOrElse`,
-///   `onSuccess`/`onFailure`
-///
-/// ## Version 1.4.0
-/// - Smooth offline: queued writes persist their query parameters and
-///   base-URL override and replay against the exact original URL
-/// - [PeekableOfflineQueueStore] gives the built-in stores crash-safe replay
-///   (requests stay persisted until individually settled)
-/// - `OfflineQueueInterceptor.onQueued` and `OfflineQueueReplayer.onDeadLetter`
-///   observability hooks; overlapping `replay()` calls coalesce into one pass
-/// - Queueing failures never mask the original network error; multipart
-///   requests are never queued
-/// - Reliability sweep: fixed sliding cache TTL, streamed-response leaks on
-///   chain restarts, body-read timeouts, dedup cancellation isolation,
-///   YAML/OpenAPI generator validity, and more (see CHANGELOG)
-///
-/// ## Version 1.3.0
-/// - Deep, backward-compatible customization on [ApiClientConfig]: configurable
-///   default headers &amp; locale (`defaultHeaders`, `defaultAccept`,
-///   `defaultAcceptLanguage`, `defaultContentType`), pluggable serialization
-///   ([RequestBodySerializer], [ResponseJsonCodec], [Charset]), configurable
-///   query encoding ([QueryEncoder]), a custom auth header name, and a custom
-///   success/failure status predicate (`isSuccessStatus`)
-/// - Custom retry backoff via `RetryPolicy.backoff`
-/// - [ClientCustomization] bundles these knobs for the convenience factories
-///
-/// ## Version 1.1.0
-/// - Real streaming downloads via `ApiClient.stream()` / [HttpStreamResponse]
-///   ([StreamingHttpAdapter] capability; buffering fallback when unsupported)
-/// - [OfflineQueueReplayer]: drains the queue in `createdAt` order, re-attaches
-///   a fresh auth token, and dead-letters poison messages after `maxAttempts`
-/// - [MemoryCacheStore] optional `maxBytes` cap (evicts by total body size)
-/// - Hardened retries (clamped `Retry-After` + HTTP-date, full jitter), dedup
-///   (no retry deadlock), and GraphQL APQ (real SHA-256 query hashing)
-/// - Statically typed `RequestOptions.retryPolicy` / `cachePolicy`
+/// See `CHANGELOG.md` for what changed in each release.
 library;
 
-// Core
-export 'src/core/api_client.dart';
+// Core types
 export 'src/core/api_exception.dart';
 export 'src/core/api_result.dart';
 export 'src/core/cancel_token.dart';
@@ -156,6 +77,11 @@ export 'src/core/request_options.dart';
 export 'src/core/response_type.dart';
 export 'src/core/serialization.dart';
 
+// Client
+export 'src/client/api_client.dart';
+export 'src/client/api_client_config.dart';
+export 'src/response/response_handler.dart';
+
 // Auth
 export 'src/auth/auth_interceptor.dart';
 export 'src/auth/cached_token_storage.dart';
@@ -163,7 +89,7 @@ export 'src/auth/memory_token_storage.dart';
 export 'src/auth/token_storage.dart';
 
 // HTTP
-export 'src/http/default_http_adapter.dart' hide encodeBody;
+export 'src/http/default_http_adapter.dart';
 export 'src/http/http_adapter.dart';
 export 'src/http/http_stream_response.dart';
 export 'src/http/mock_adapter.dart';
@@ -180,18 +106,17 @@ export 'src/interceptors/circuit_breaker/circuit_breaker_interceptor.dart';
 export 'src/interceptors/dedup/dedup_interceptor.dart';
 export 'src/interceptors/logging/curl_logger.dart';
 export 'src/interceptors/logging/pretty_logger.dart';
-export 'src/interceptors/offline/offline_auto_replay.dart';
-export 'src/interceptors/offline/offline_mutations.dart';
-export 'src/interceptors/offline/offline_queue.dart';
-export 'src/interceptors/offline/offline_queue_interceptor.dart';
-export 'src/interceptors/offline/offline_queue_replayer.dart';
-export 'src/interceptors/offline/offline_sync_manager.dart';
 export 'src/interceptors/retry/retry_interceptor.dart';
 export 'src/interceptors/retry/retry_policy.dart';
 
-// Response
-export 'src/response/response_handler.dart';
-export 'src/response/response_handler_interface.dart';
+// Offline queue
+export 'src/offline/hive_offline_queue_store.dart';
+export 'src/offline/offline_auto_replay.dart';
+export 'src/offline/offline_mutations.dart';
+export 'src/offline/offline_queue.dart';
+export 'src/offline/offline_queue_interceptor.dart';
+export 'src/offline/offline_queue_replayer.dart';
+export 'src/offline/offline_sync_manager.dart';
 
 // Spec
 export 'src/spec/api_spec.dart';

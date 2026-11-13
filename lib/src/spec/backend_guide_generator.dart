@@ -1,8 +1,8 @@
-import 'dart:convert';
-
 import 'api_spec.dart';
+import 'path_placeholder.dart';
 import 'graphql_spec.dart';
 import 'schema.dart';
+import 'spec_text.dart';
 
 /// Generates a backend-implementation guide in Markdown. Designed to be
 /// handed to a backend engineer so they can build the API surface the
@@ -17,10 +17,6 @@ class BackendGuideGenerator {
 
   /// Target backend framework for the emitted code snippets.
   final BackendFramework framework;
-
-  // Fixed patterns reused across every endpoint — compiled once.
-  static final RegExp _placeholder = RegExp(r'\{([^}]+)\}');
-  static final RegExp _braces = RegExp(r'\{|\}');
 
   /// Renders the full backend implementation guide in Markdown.
   String generate() {
@@ -176,14 +172,11 @@ class BackendGuideGenerator {
 
       buf.writeln('**Status codes returned**');
       buf.writeln();
-      if (ep.responses.isEmpty) {
-        buf.writeln('- `204` No Content');
-      } else {
-        for (final r in ep.responses) {
-          buf.writeln(
-            '- `${r.statusCode}` ${r.description ?? _phrase(r.statusCode)}',
-          );
-        }
+      for (final r in responsesOrNoContent(ep)) {
+        buf.writeln(
+          '- `${r.statusCode}` '
+          '${r.description ?? reasonPhrases[r.statusCode] ?? ''}',
+        );
       }
       buf.writeln();
 
@@ -191,7 +184,7 @@ class BackendGuideGenerator {
         buf.writeln('**Example request body**');
         buf.writeln();
         buf.writeln('```json');
-        buf.writeln(_pretty(ep.request!.body));
+        buf.writeln(prettyJson(ep.request!.body));
         buf.writeln('```');
         buf.writeln();
       }
@@ -199,7 +192,7 @@ class BackendGuideGenerator {
         buf.writeln('**Example success response**');
         buf.writeln();
         buf.writeln('```json');
-        buf.writeln(_pretty(ep.firstSuccess!.body));
+        buf.writeln(prettyJson(ep.firstSuccess!.body));
         buf.writeln('```');
         buf.writeln();
       }
@@ -209,36 +202,37 @@ class BackendGuideGenerator {
       buf.writeln('```');
       buf.writeln('function ${_handlerName(ep)}(req):');
       if (ep.auth) buf.writeln('  user = require_auth(req)');
-      if (ep.pathParams.isNotEmpty) {
-        for (final k in ep.pathParams.keys) {
-          buf.writeln('  $k = req.path.$k');
-        }
+      for (final k in ep.pathParams.keys) {
+        buf.writeln('  $k = req.path.$k');
       }
-      if (ep.queryParams.isNotEmpty) {
-        for (final k in ep.queryParams.keys) {
-          buf.writeln('  $k = req.query.$k');
-        }
+      for (final k in ep.queryParams.keys) {
+        buf.writeln('  $k = req.query.$k');
       }
       if (ep.request != null) {
         buf.writeln('  body = validate(req.body, RequestSchema)');
       }
-      buf.writeln('  result = service.${_serviceName(ep)}(...)');
+      buf.writeln('  result = service.${_handlerName(ep)}(...)');
       buf.writeln('  return ${ep.firstSuccess?.statusCode ?? 200}, result');
       buf.writeln('```');
       buf.writeln();
 
-      final snippet = _frameworkSnippet(ep);
-      if (snippet != null) {
-        buf.writeln('**${framework.name} snippet**');
-        buf.writeln();
-        buf.writeln('```${framework.lang}');
-        buf.writeln(snippet);
-        buf.writeln('```');
-        buf.writeln();
-      }
-      buf.writeln('---');
+      _writeSnippet(buf, _frameworkSnippet(ep));
+    }
+  }
+
+  /// Writes the framework snippet (when the framework has one) and the rule
+  /// that closes an endpoint or operation section.
+  void _writeSnippet(StringBuffer buf, String? snippet) {
+    if (snippet != null) {
+      buf.writeln('**${framework.name} snippet**');
+      buf.writeln();
+      buf.writeln('```${framework.lang}');
+      buf.writeln(snippet);
+      buf.writeln('```');
       buf.writeln();
     }
+    buf.writeln('---');
+    buf.writeln();
   }
 
   void _writeChecklist(StringBuffer buf) {
@@ -300,7 +294,7 @@ class BackendGuideGenerator {
     buf.writeln('| --- | --- | --- | --- |');
     for (final op in section.operations) {
       buf.writeln(
-        '| `${op.kind.name}` | `${op.name}` | ${op.auth ? 'required' : 'public'} | `${_resolverName(op)}` |',
+        '| `${op.kind.name}` | `${op.name}` | ${op.auth ? 'required' : 'public'} | `${_lowerFirst(op.name)}` |',
       );
     }
     buf.writeln();
@@ -313,15 +307,11 @@ class BackendGuideGenerator {
     buf.writeln();
 
     for (final op in section.operations) {
-      _writeGraphqlOperation(buf, section, op);
+      _writeGraphqlOperation(buf, op);
     }
   }
 
-  void _writeGraphqlOperation(
-    StringBuffer buf,
-    GraphQLSection section,
-    GraphQLOperation op,
-  ) {
+  void _writeGraphqlOperation(StringBuffer buf, GraphQLOperation op) {
     buf.writeln('### `${op.kind.name}` ${op.name}');
     if (op.description != null) {
       buf.writeln();
@@ -350,7 +340,7 @@ class BackendGuideGenerator {
       buf.writeln('**Example success response (`data`)**');
       buf.writeln();
       buf.writeln('```json');
-      buf.writeln(_pretty(op.responseExample));
+      buf.writeln(prettyJson(op.responseExample));
       buf.writeln('```');
       buf.writeln();
     }
@@ -369,42 +359,23 @@ class BackendGuideGenerator {
     buf.writeln('**Resolver skeleton (pseudocode)**');
     buf.writeln();
     buf.writeln('```');
-    buf.writeln('function ${_resolverName(op)}(parent, args, ctx):');
+    buf.writeln('function ${_lowerFirst(op.name)}(parent, args, ctx):');
     if (op.auth) buf.writeln('  user = require_auth(ctx)');
-    if (op.variables.isNotEmpty) {
-      for (final k in op.variables.keys) {
-        buf.writeln('  $k = args.$k');
-      }
+    for (final k in op.variables.keys) {
+      buf.writeln('  $k = args.$k');
     }
     buf.writeln('  validate(args, VariableSchema)');
-    buf.writeln('  return service.${_resolverName(op)}(...)');
+    buf.writeln('  return service.${_lowerFirst(op.name)}(...)');
     buf.writeln('```');
     buf.writeln();
 
-    final snippet = _graphqlFrameworkSnippet(op);
-    if (snippet != null) {
-      buf.writeln('**${framework.name} snippet**');
-      buf.writeln();
-      buf.writeln('```${framework.lang}');
-      buf.writeln(snippet);
-      buf.writeln('```');
-      buf.writeln();
-    }
-    buf.writeln('---');
-    buf.writeln();
+    _writeSnippet(buf, _graphqlFrameworkSnippet(op));
   }
 
   String _buildSdl(GraphQLSection section) {
     final buf = StringBuffer();
-    final queries =
-        section.operations.where((o) => o.isQuery).toList(growable: false);
-    final mutations =
-        section.operations.where((o) => o.isMutation).toList(growable: false);
-    final subscriptions = section.operations
-        .where((o) => o.isSubscription)
-        .toList(growable: false);
-
-    void writeBlock(String name, List<GraphQLOperation> ops) {
+    void writeBlock(String name, GraphQLOperationKind kind) {
+      final ops = section.operations.where((o) => o.kind == kind);
       if (ops.isEmpty) return;
       buf.writeln('type $name {');
       for (final op in ops) {
@@ -420,9 +391,9 @@ class BackendGuideGenerator {
       buf.writeln();
     }
 
-    writeBlock('Query', queries);
-    writeBlock('Mutation', mutations);
-    writeBlock('Subscription', subscriptions);
+    writeBlock('Query', GraphQLOperationKind.query);
+    writeBlock('Mutation', GraphQLOperationKind.mutation);
+    writeBlock('Subscription', GraphQLOperationKind.subscription);
     return buf.toString().trimRight();
   }
 
@@ -451,15 +422,13 @@ class BackendGuideGenerator {
   String _lowerFirst(String s) =>
       s.isEmpty ? s : s[0].toLowerCase() + s.substring(1);
 
-  String _resolverName(GraphQLOperation op) => _lowerFirst(op.name);
-
   String? _graphqlFrameworkSnippet(GraphQLOperation op) {
-    final args = op.variables.keys.map((k) => k).join(', ');
+    final args = op.variables.keys.join(', ');
     switch (framework) {
       case BackendFramework.express:
         return 'const resolvers = {\n'
             '  ${op.isMutation ? 'Mutation' : op.isSubscription ? 'Subscription' : 'Query'}: {\n'
-            '    ${_resolverName(op)}: async (_, { $args }, ctx) => {\n'
+            '    ${_lowerFirst(op.name)}: async (_, { $args }, ctx) => {\n'
             '      ${op.auth ? 'await requireAuth(ctx);\n      ' : ''}// TODO: implement\n'
             '      return {};\n'
             '    },\n'
@@ -467,7 +436,7 @@ class BackendGuideGenerator {
             '};';
       case BackendFramework.fastapi:
         return '@strawberry.${op.isMutation ? 'mutation' : 'field'}\n'
-            'async def ${_resolverName(op)}(self${args.isEmpty ? '' : ', $args'}) -> dict:\n'
+            'async def ${_lowerFirst(op.name)}(self${args.isEmpty ? '' : ', $args'}) -> dict:\n'
             '    # TODO: implement\n'
             '    return {}';
       case BackendFramework.gin:
@@ -492,12 +461,9 @@ class BackendGuideGenerator {
     ep.queryParams.forEach((k, s) {
       out.add('`$k` (query): ${_schemaSummary(s)}');
     });
-    final reqSchema = ep.request?.schema;
-    if (reqSchema?.properties != null) {
-      reqSchema!.properties!.forEach((k, s) {
-        out.add('body.`$k`: ${_schemaSummary(s)}');
-      });
-    }
+    ep.request?.schema?.properties?.forEach((k, s) {
+      out.add('body.`$k`: ${_schemaSummary(s)}');
+    });
     return out;
   }
 
@@ -517,7 +483,7 @@ class BackendGuideGenerator {
     // Path placeholders are framework-specific: Express and Gin use `:param`
     // segments, while FastAPI uses `{param}` templates (the spec's own form).
     final colonRoute = ep.path.replaceAllMapped(
-      _placeholder,
+      pathPlaceholder,
       (m) => ':${m.group(1)}',
     );
     switch (framework) {
@@ -529,7 +495,7 @@ class BackendGuideGenerator {
       case BackendFramework.fastapi:
         final params = ep.pathParams.keys.map((k) => '$k: str').join(', ');
         return "@app.${ep.method.toLowerCase()}('${ep.path}')\n"
-            "async def ${_serviceName(ep)}($params):\n"
+            "async def ${_handlerName(ep)}($params):\n"
             "    # TODO: validate, call service\n"
             "    return {}";
       case BackendFramework.gin:
@@ -544,40 +510,11 @@ class BackendGuideGenerator {
 
   String _handlerName(EndpointSpec ep) {
     final parts = ep.path
-        .replaceAll(_braces, '')
+        .replaceAll('{', '')
+        .replaceAll('}', '')
         .split('/')
-        .where((p) => p.isNotEmpty)
-        .toList();
+        .where((p) => p.isNotEmpty);
     return '${ep.method.toLowerCase()}_${parts.join('_')}';
-  }
-
-  String _serviceName(EndpointSpec ep) => _handlerName(ep);
-
-  String _pretty(Object? v) => const JsonEncoder.withIndent('  ').convert(v);
-
-  String _phrase(int code) {
-    switch (code) {
-      case 200:
-        return 'OK';
-      case 201:
-        return 'Created';
-      case 204:
-        return 'No Content';
-      case 400:
-        return 'Bad Request';
-      case 401:
-        return 'Unauthorized';
-      case 403:
-        return 'Forbidden';
-      case 404:
-        return 'Not Found';
-      case 422:
-        return 'Unprocessable Entity';
-      case 500:
-        return 'Internal Server Error';
-      default:
-        return '';
-    }
   }
 }
 

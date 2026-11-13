@@ -1,10 +1,11 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import '../http/http_adapter.dart';
+import '../http/mock_support.dart';
 import 'api_spec.dart';
 import 'examples.dart';
 import 'graphql_spec.dart';
+import 'spec_text.dart';
 
 /// Turns an [ApiSpec] into a fully-working mock adapter.
 ///
@@ -56,16 +57,8 @@ class SpecMockAdapter implements HttpAdapter {
       return _serveGraphql(gql, req);
     }
 
-    final EndpointSpec? match = _match(req.method, path);
-    if (match == null) {
-      return AdapterResponse(
-        statusCode: 404,
-        headers: const {'content-type': 'application/json'},
-        bodyBytes: _encode({
-          'message': 'No spec endpoint for ${req.method} $path',
-        }),
-      );
-    }
+    final match = _match(req.method, path);
+    if (match == null) return notFoundResponse('spec endpoint', req);
     if (validateRequests && match.request?.schema != null) {
       // A missing body is validated as an empty object: an endpoint whose
       // schema declares required fields must reject a bodyless request rather
@@ -74,42 +67,25 @@ class SpecMockAdapter implements HttpAdapter {
           req.body == null ? const <String, Object?>{} : _decodeBody(req);
       final errors = match.request!.schema!.validate(body);
       if (errors.isNotEmpty) {
-        return AdapterResponse(
-          statusCode: 422,
-          headers: const {'content-type': 'application/json'},
-          bodyBytes: _encode({
-            'message': 'Validation failed',
-            'errors': errors,
-          }),
-        );
+        return jsonResponse(422, {
+          'message': 'Validation failed',
+          'errors': errors,
+        });
       }
     }
 
-    final overrideKey = '${match.method} ${match.path}';
-    final overrideStatus = statusOverrides[overrideKey];
+    final overrideStatus = statusOverrides['${match.method} ${match.path}'];
     if (overrideStatus != null) {
-      if (match.responses.isEmpty) {
-        // No declared responses to borrow a body from: synthesize a minimal
-        // one so the override still takes effect instead of throwing.
-        return _toResponse(
-          ResponseExample(statusCode: overrideStatus),
-          statusCode: overrideStatus,
-        );
-      }
-      final picked = match.responses.firstWhere(
+      final responses = responsesOrNoContent(match);
+      final picked = responses.firstWhere(
         (r) => r.statusCode == overrideStatus,
-        orElse: () => match.responses.first,
+        orElse: () => responses.first,
       );
       return _toResponse(picked, statusCode: overrideStatus);
     }
 
-    final success = match.firstSuccess;
-    if (success != null) return _toResponse(success);
-    if (match.responses.isNotEmpty) return _toResponse(match.responses.first);
-    return AdapterResponse(
-      statusCode: 204,
-      headers: const {'content-type': 'application/json'},
-      bodyBytes: Uint8List(0),
+    return _toResponse(
+      match.firstSuccess ?? responsesOrNoContent(match).first,
     );
   }
 
@@ -137,15 +113,8 @@ class SpecMockAdapter implements HttpAdapter {
       AdapterResponse(
         statusCode: statusCode ?? r.statusCode,
         headers: Map<String, String>.from(r.headers),
-        bodyBytes: _encode(r.body),
+        bodyBytes: encodeMockBody(r.body),
       );
-
-  Uint8List _encode(Object? body) {
-    if (body == null) return Uint8List(0);
-    if (body is String) return Uint8List.fromList(utf8.encode(body));
-    if (body is List<int>) return Uint8List.fromList(body);
-    return Uint8List.fromList(utf8.encode(jsonEncode(body)));
-  }
 
   EndpointSpec? _match(String method, String path) {
     final upper = method.toUpperCase();
@@ -236,7 +205,6 @@ class SpecMockAdapter implements HttpAdapter {
       );
     }
 
-    // Optional variables validation.
     if (validateRequests && op.variables.isNotEmpty) {
       final vars = (body['variables'] as Map?)?.cast<String, Object?>() ?? {};
       final problems = <String>[];
@@ -256,8 +224,7 @@ class SpecMockAdapter implements HttpAdapter {
       }
     }
 
-    final overrideKey = 'GQL ${op.name}';
-    final overrideStatus = statusOverrides[overrideKey];
+    final overrideStatus = statusOverrides['GQL ${op.name}'];
     if (overrideStatus != null) {
       // The override must always take effect: when the operation declares no
       // example errors, synthesize a generic one instead of ignoring it.
@@ -280,19 +247,19 @@ class SpecMockAdapter implements HttpAdapter {
     String? operationName,
     String? document,
   ) {
-    if (operationName != null) {
+    GraphQLOperation? named(String? name) {
+      if (name == null) return null;
       for (final op in section.operations) {
-        if (op.name == operationName) return op;
+        if (op.name == name) return op;
       }
+      return null;
     }
+
+    final byName = named(operationName) ?? named(_extractOpName(document));
+    if (byName != null) return byName;
     if (document != null) {
-      final name = _extractOpName(document);
-      if (name != null) {
-        for (final op in section.operations) {
-          if (op.name == name) return op;
-        }
-      }
-      // Fallback: substring match by name in the document.
+      // Anonymous or unknown operation: fall back to a declared name that
+      // merely appears in the document.
       for (final op in section.operations) {
         if (document.contains(op.name)) return op;
       }
@@ -301,8 +268,7 @@ class SpecMockAdapter implements HttpAdapter {
     return null;
   }
 
-  /// Matches the operation name in a GraphQL document. The pattern is fixed, so
-  /// compile it once instead of on every extraction.
+  /// Matches the operation name in a GraphQL document.
   static final RegExp _opNamePattern =
       RegExp(r'(?:query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)');
 
@@ -315,17 +281,11 @@ class SpecMockAdapter implements HttpAdapter {
     int statusCode, {
     Object? data,
     List<GraphQLErrorExample> errors = const [],
-  }) {
-    final body = <String, Object?>{
-      'data': data,
-      if (errors.isNotEmpty) 'errors': errors.map((e) => e.toJson()).toList(),
-    };
-    return AdapterResponse(
-      statusCode: statusCode,
-      headers: const {'content-type': 'application/json'},
-      bodyBytes: _encode(body),
-    );
-  }
+  }) =>
+      jsonResponse(statusCode, {
+        'data': data,
+        if (errors.isNotEmpty) 'errors': errors.map((e) => e.toJson()).toList(),
+      });
 
   AdapterResponse _gqlError(int statusCode, String message) => _gqlResponse(
         statusCode,

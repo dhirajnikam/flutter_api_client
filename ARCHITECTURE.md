@@ -53,7 +53,7 @@ This document describes the internal architecture of `flutter_api_client` to hel
 
 ## Core Components
 
-### 1. ApiClient (`lib/src/core/api_client.dart`)
+### 1. ApiClient (`lib/src/client/api_client.dart`)
 
 The main entry point for making HTTP requests.
 
@@ -154,7 +154,7 @@ delay = min(baseDelay * 2^attempt + jitter, maxDelay)
 2. Add `If-None-Match` on next request
 3. On 304, return cached entry
 
-**Design Decision**: Cache key is `method:url`. Query params are part of URL, so different params = different cache entries.
+**Design Decision**: Cache key is the method, the resolved URL and the request headers. Query params are part of the URL, so different params = different cache entries.
 
 **Design Decision**: The identity key (see `requestIdentityKey`) also includes the request headers — notably `Authorization`. Cached bodies must never leak across credentials, so a token refresh deliberately cold-starts the cache (and stops dedup coalescing) across the refresh boundary. The one-time re-fetch after a refresh is the accepted price of credential isolation.
 
@@ -168,9 +168,9 @@ delay = min(baseDelay * 2^attempt + jitter, maxDelay)
 3. If no, start new request and store future
 4. On response/error, remove from in-flight map
 
-**Key**: `method:url` (same as cache)
+**Key**: method + URL + headers (same as cache)
 
-**Design Decision**: Only GETs are deduplicated by default. Mutations (POST, PUT, etc.) are not safe to deduplicate.
+**Design Decision**: Only GET and HEAD are deduplicated by default. Mutations (POST, PUT, etc.) are not safe to deduplicate.
 
 ### AuthInterceptor
 
@@ -196,7 +196,7 @@ delay = min(baseDelay * 2^attempt + jitter, maxDelay)
 
 ### OfflineQueueInterceptor
 
-**Location**: `lib/src/interceptors/offline/offline_queue_interceptor.dart`
+**Location**: `lib/src/offline/offline_queue_interceptor.dart`
 
 **Flow**:
 1. On network/timeout error, check `isOnline()`
@@ -214,13 +214,13 @@ delay = min(baseDelay * 2^attempt + jitter, maxDelay)
 
 **Location**: `lib/src/interceptors/circuit_breaker/circuit_breaker_interceptor.dart`
 
-**Flow**: per-host circuits count consecutive transport failures (network/timeout errors and HTTP 5xx). At `failureThreshold` the circuit opens and requests to that host reject immediately with a `NetworkError` until `cooldown` elapses; then one half-open probe decides between closing (success) and reopening (failure). The admitted probe carries an internal `x-fac-circuit-probe` token (stripped before transport), so its own retries from an interceptor below the breaker go through and its final outcome is recorded. While the circuit is open or half-open only that probe's outcome counts; late outcomes from earlier requests (or a replaced probe) are ignored. A probe whose outcome still goes unrecorded (e.g. cancelled) is replaced after another `cooldown`, so the circuit cannot stay half-open forever.
+**Flow**: per-host circuits count consecutive transport failures (network/timeout errors and HTTP 5xx). At `failureThreshold` the circuit opens and requests to that host reject immediately with a `NetworkError` until `cooldown` elapses; then one half-open probe decides between closing (success) and reopening (failure). The admitted probe is tagged in the request's interceptor state (`InterceptedRequest.extra`, never sent), so its own retries from an interceptor below the breaker go through and its final outcome is recorded. While the circuit is open or half-open only that probe's outcome counts; late outcomes from earlier requests (or a replaced probe) are ignored. A probe whose outcome still goes unrecorded (e.g. cancelled) is replaced after another `cooldown`, so the circuit cannot stay half-open forever.
 
 **Design Decision**: rejections reuse `NetworkError` (marked `sent: false`, so replay can re-queue them without counting an attempt) rather than adding a new `ApiException` subtype — `ApiException` is sealed, so a new subtype would break user code that switches exhaustively. The breaker tags its own synthetic rejections by identity so the chain's error pass never counts a fail-fast as another origin failure. 4xx responses and cancellations never trip the circuit (they prove reachability or say nothing about it).
 
 ### Offline sync (OfflineSyncManager)
 
-**Location**: `lib/src/interceptors/offline/offline_sync_manager.dart`
+**Location**: `lib/src/offline/offline_sync_manager.dart`
 
 Bridges a user-supplied `Stream<bool>` connectivity signal to `OfflineQueueReplayer`: replay on every online event, re-schedule after `retryDelay` while passes leave transient failures re-enqueued, cancel on offline, coalesce overlapping triggers via the replayer's single-pass guarantee. Dependency-light by design — the package does not bundle a connectivity plugin.
 
@@ -458,20 +458,20 @@ abstract class TokenStorage {
 ### Unit Tests
 
 Each component has isolated unit tests:
-- `test/api_result_test.dart`: Result type behavior
-- `test/cache_interceptor_test.dart`: All cache strategies
-- `test/retry_error_test.dart`: Retry conditions
-- `test/mock_adapter_test.dart`: Routing and capture
+- `test/core/api_result_test.dart`: Result type behavior
+- `test/interceptors/cache_test.dart`: All cache strategies
+- `test/interceptors/retry_test.dart`: Retry conditions
+- `test/http/mock_adapter_test.dart`: Routing and capture
 
 ### Integration Tests
 
 Full stack tests with real interceptor chains:
-- `test/mock_adapter_test.dart`: Multi-interceptor scenarios
-- `test/spec_test.dart`: Spec → mock → request flow
+- `test/integration/interceptor_stack_test.dart`: Multi-interceptor scenarios
+- `test/spec/spec_mock_adapter_test.dart`: Spec → mock → request flow
 
 ### Coverage
 
-Current: **374 tests, all passing**
+Current: **all tests passing** (`flutter test`)
 
 Aim: >90% line coverage
 
@@ -504,7 +504,7 @@ Aim: >90% line coverage
 
 - **1.0.0**: Initial stable release
 - **1.0.x**: Bug fixes, docs improvements
-- **1.1.0**: Real streaming, offline-queue replay, hardened retries/cache/dedup (current)
+- **1.1.0**: Real streaming, offline-queue replay, hardened retries/cache/dedup
 - **1.x.x**: New features, backwards compatible
 - **2.0.0**: Breaking changes
 
@@ -518,8 +518,6 @@ Aim: >90% line coverage
 
 1. **WebSocket adapter**: Full-duplex communication
 2. **Metrics**: Built-in telemetry (request counts, latency)
-3. **Circuit breaker**: Fail-fast when backend is unhealthy
-4. **Persistent cache**: SQLite/Hive backend for `CacheStore`
 
 > Note: streaming downloads shipped in 1.1.0 via `ApiClient.stream()` /
 > `HttpStreamResponse`; offline-queue replay shipped via `OfflineQueueReplayer`.

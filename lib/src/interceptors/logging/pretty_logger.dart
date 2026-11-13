@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import '../../core/api_exception.dart';
 import '../../core/serialization.dart';
 import '../../http/http_adapter.dart';
@@ -9,32 +7,10 @@ import 'redaction.dart';
 /// Pretty, line-broken request/response logger with optional ANSI colors
 /// and header redaction.
 class PrettyLogger extends Interceptor {
-  /// Creates a pretty logger. All knobs have safe defaults; secrets in common
-  /// header and body fields are redacted out of the box.
   PrettyLogger({
     this.printer = print,
-    this.redactHeaders = const {
-      'authorization',
-      'cookie',
-      'set-cookie',
-      'proxy-authorization',
-      'x-api-key',
-      'x-auth-token',
-    },
-    this.redactBodyKeys = const {
-      'password',
-      'passwd',
-      'pwd',
-      'secret',
-      'token',
-      'access_token',
-      'refresh_token',
-      'api_key',
-      'apikey',
-      'client_secret',
-      'credit_card',
-      'card_number',
-    },
+    this.redactHeaders = defaultRedactHeaders,
+    this.redactBodyKeys = defaultRedactBodyKeys,
     this.requestBody = true,
     this.responseBody = true,
     this.useColors = true,
@@ -71,17 +47,8 @@ class PrettyLogger extends Interceptor {
   static const _red = '\u001B[31m';
   static const _grey = '\u001B[90m';
 
-  late final Set<String> _normalizedRedactBodyKeys = {
-    for (final key in redactBodyKeys) normalizeBodyKey(key),
-  };
-
-  /// Header names are matched case-insensitively. A caller that passes
-  /// `{'Authorization'}` (mixed case) must still get redaction — otherwise the
-  /// secret leaks into logs. Normalize the set once instead of trusting the
-  /// caller to lowercase it.
-  late final Set<String> _normalizedRedactHeaders = {
-    for (final name in redactHeaders) name.toLowerCase(),
-  };
+  late final _redactor =
+      Redactor(headers: redactHeaders, bodyKeys: redactBodyKeys);
 
   String _c(String code, String s) => useColors ? '$code$s$_reset' : s;
 
@@ -90,12 +57,11 @@ class PrettyLogger extends Interceptor {
     final buf = StringBuffer();
     buf.writeln(_c(_cyan, '┌─── ${req.method} ${req.endpoint} ───'));
     req.headers.forEach((k, v) {
-      buf.writeln(_c(_grey, '│ $k: ${_redactHeaderValue(k, v)}'));
+      buf.writeln(_c(_grey, '│ $k: ${_redactor.requestHeader(req, k, v)}'));
     });
     if (requestBody && req.data != null && !req.isMultipart) {
-      final body =
-          req.data is String ? req.data as String : jsonEncode(req.data);
-      buf.writeln(_c(_grey, '│ body: ${_redactJsonBody(body)}'));
+      final body = _redactor.requestBody(req.data as Object);
+      buf.writeln(_c(_grey, '│ body: $body'));
     }
     buf.writeln(_c(_cyan, '└───────────────'));
     printer(buf.toString());
@@ -113,33 +79,25 @@ class PrettyLogger extends Interceptor {
       _c(color, '┌─── ${res.statusCode} ${req.method} ${req.endpoint} ───'),
     );
     res.headers.forEach((k, v) {
-      buf.writeln(_c(_grey, '│ $k: ${_redactHeaderValue(k, v)}'));
+      buf.writeln(_c(_grey, '│ $k: ${_redactor.header(k, v)}'));
     });
     if (responseBody) {
       try {
         final body = charset.decode(res.bodyBytes);
         if (body.isNotEmpty) {
-          final preview =
-              body.length > 2000 ? '${body.substring(0, 2000)}…' : body;
-          buf.writeln(_c(_grey, '│ body: ${_redactJsonBody(preview)}'));
+          // Redact first: a truncated JSON body no longer parses, and would be
+          // printed with its secrets intact.
+          final redacted = _redactor.jsonBody(body);
+          final preview = redacted.length > 2000
+              ? '${redacted.substring(0, 2000)}…'
+              : redacted;
+          buf.writeln(_c(_grey, '│ body: $preview'));
         }
       } catch (_) {}
     }
     buf.writeln(_c(color, '└───────────────'));
     printer(buf.toString());
     return ResolveResult(res);
-  }
-
-  String _redactHeaderValue(String name, String value) =>
-      _normalizedRedactHeaders.contains(name.toLowerCase())
-          ? '<redacted>'
-          : value;
-
-  /// Redacts values for keys in [redactBodyKeys] from a JSON body string.
-  /// Returns the original [body] if it isn't valid JSON.
-  String _redactJsonBody(String body) {
-    if (_normalizedRedactBodyKeys.isEmpty) return body;
-    return redactJsonBody(body, _normalizedRedactBodyKeys);
   }
 
   @override

@@ -2,17 +2,23 @@ import 'dart:convert';
 
 import '../core/serialization.dart';
 import '../http/http_adapter.dart';
-import 'response_handler_interface.dart';
+
+/// Pluggable response error message extractor.
+abstract class ResponseHandlerInterface {
+  /// Returns an error message for non-2xx responses, null otherwise.
+  String? handleResponse(AdapterResponse response);
+
+  /// True if the body looks like HTML/plain text instead of JSON.
+  bool isHtmlOrTextResponse(String responseBody);
+}
 
 /// Default response handler that extracts a human-readable message from a
 /// JSON error envelope and detects HTML / plain-text bodies.
 class ResponseHandler implements ResponseHandlerInterface {
-  /// Creates the handler. [charset] decodes response bytes before message
-  /// extraction; defaults to UTF-8. Malformed bytes degrade to a generic
-  /// message rather than throwing.
   const ResponseHandler({this.charset = const Utf8Charset()});
 
-  /// Charset used to decode response bodies.
+  /// Decodes response bytes before message extraction. Malformed bytes
+  /// degrade to a generic message rather than throwing.
   final Charset charset;
 
   @override
@@ -21,11 +27,6 @@ class ResponseHandler implements ResponseHandlerInterface {
     try {
       final body = charset.decode(res.bodyBytes);
 
-      // Trim once and reuse: the empty-check and the HTML/text classification
-      // both work off the trimmed body. `isHtmlOrTextResponse` trims its own
-      // argument too, but `trim()` is idempotent, so feeding it the already
-      // trimmed string is behaviour-identical while avoiding a second full
-      // scan of (potentially large) HTML error bodies on the error path.
       final trimmed = body.trim();
       if (trimmed.isEmpty) {
         return isSuccess ? null : 'Server returned an empty response';

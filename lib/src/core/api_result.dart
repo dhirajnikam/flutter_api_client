@@ -48,9 +48,15 @@ sealed class ApiResult<T> {
   String? get errorMessage => error?.message;
 
   /// Alias for [data]. Returns the success value or null.
+  @Deprecated(
+    'Use data. To be removed in 2.0.0.',
+  )
   T? get dataOrNull => data;
 
   /// Alias for [error]. Returns the typed error or null.
+  @Deprecated(
+    'Use error. To be removed in 2.0.0.',
+  )
   ApiException? get errorOrNull => error;
 
   /// HTTP status code. Present on both branches where available.
