@@ -12,7 +12,7 @@ import '../http/http_stream_response.dart';
 import '../interceptors/interceptor.dart';
 import '../interceptors/interceptor_chain.dart';
 import '../interceptors/internal_headers.dart';
-import '../response/response_handler.dart';
+import 'response_handler.dart';
 import 'api_client_config.dart';
 import 'response_decoder.dart';
 

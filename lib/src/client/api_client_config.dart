@@ -3,7 +3,7 @@ import '../core/query.dart';
 import '../core/serialization.dart';
 import '../http/http_adapter.dart';
 import '../interceptors/interceptor.dart';
-import '../response/response_handler.dart';
+import 'response_handler.dart';
 
 bool _defaultIsSuccessStatus(int statusCode) =>
     statusCode >= 200 && statusCode < 300;
