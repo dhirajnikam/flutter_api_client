@@ -361,7 +361,6 @@ flutter_api_client/
 │       ├── http/                    # HTTP adapters
 │       ├── interceptors/            # Chain + cache, retry, dedup, breaker, logging
 │       ├── offline/                 # Offline queue, replay, optimistic mutations
-│       ├── response/                # Response handlers
 │       └── spec/                    # API spec & generators
 ├── test/                            # Tests mirror lib/ structure
 ├── example/                         # Demo app

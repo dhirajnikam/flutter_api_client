@@ -2,7 +2,7 @@ import '../core/api_exception.dart';
 import '../core/response_type.dart';
 import '../core/serialization.dart';
 import '../http/http_adapter.dart';
-import '../response/response_handler.dart';
+import 'response_handler.dart';
 
 /// Turns a response body into the value a caller asked for.
 class ResponseDecoder {

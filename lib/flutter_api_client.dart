@@ -80,7 +80,7 @@ export 'src/core/serialization.dart';
 // Client
 export 'src/client/api_client.dart';
 export 'src/client/api_client_config.dart';
-export 'src/response/response_handler.dart';
+export 'src/client/response_handler.dart';
 
 // Auth
 export 'src/auth/auth_interceptor.dart';
