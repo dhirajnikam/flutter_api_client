@@ -1,3 +1,18 @@
+## 1.9.1
+
+**Release Date**: 2026-11-14  
+**Type**: Patch Release (internal restructuring only)  
+**Breaking Changes**: None. No exported name was added, removed or changed.
+
+### Changed
+
+* `response_handler.dart` moved from `lib/src/response/` to `lib/src/client/`,
+  next to the client code that is its only user. `ResponseHandler` and
+  `ResponseHandlerInterface` are still exported from
+  `package:flutter_api_client/flutter_api_client.dart`; only code that imported
+  the file from `lib/src` directly (which Dart's package rules advise against)
+  needs to update its path.
+
 ## 1.9.0
 
 **Release Date**: 2026-11-13  
