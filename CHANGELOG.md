@@ -9,8 +9,9 @@
 * `build` constraint widened from `^4.0.6` to `>=4.0.6 <6.0.0`, so the package
   resolves with `build` 5.0.0 while still accepting 4.x. The builders were run
   against both majors and produce identical output.
-* Tests now pass on the lowest allowed dependency versions (a dev-only `glob`
-  floor keeps an old, non-compiling `file` release out of the resolution).
+* Added a `glob: ^2.1.1` floor. Older `glob` releases pull in a `file` version
+  that no longer compiles on current Dart, which broke builds and tests when
+  resolving to the lowest allowed dependency versions.
 
 ## 1.9.1
 
