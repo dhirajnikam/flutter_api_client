@@ -1,3 +1,5 @@
+// material_ui needs Flutter >=3.47; keep material.dart so older SDKs still build.
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter_api_client/flutter_api_client.dart';
 
