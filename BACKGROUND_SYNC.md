@@ -68,6 +68,29 @@ void registerSyncPort(OfflineSyncManager sync) {
 // On logout/teardown: IsolateNameServer.removePortNameMapping(kSyncPort);
 ```
 
+Define the sync once, so the foreground app and the background task send and
+fetch in the same order:
+
+```dart
+// ---- shared by both isolates ----
+OfflineSyncManager buildSync(ApiClient client, OfflineQueueStore store,
+        {Stream<bool>? onlineStream}) =>
+    OfflineSyncManager(
+      replayer: OfflineQueueReplayer(
+        store: store,
+        client: client,
+        haltOnFailure: true, // dependent writes keep their order
+      ),
+      onlineStream: onlineStream,
+      replayOnStart: onlineStream != null,
+      fetchSteps: [
+        // after the uploads, in this order
+        () async => saveProfile(await client.get('profile')),
+        () async => saveOrders(await client.get('orders')),
+      ],
+    );
+```
+
 ```dart
 // ---- background isolate (inside the task callback) ----
 Future<bool> runBackgroundSync() async {
@@ -76,20 +99,17 @@ Future<bool> runBackgroundSync() async {
     mainApp.send('sync'); // app is alive — IT owns the box; we just poke it
     return true;
   }
-  // App is dead: this isolate is the sole owner. Safe to open Hive.
+  // App is terminated: this isolate is the sole owner. Safe to open Hive.
   final dir = await getApplicationDocumentsDirectory();
   Hive.init(dir.path);
   final box = await Hive.openBox<String>('offline_queue');
   final client = buildApiClient(); // your usual factory: baseUrl, auth, retries
+  final sync = buildSync(client, HiveOfflineQueueStore(box));
   try {
-    final store = HiveOfflineQueueStore(box);
-    if (await store.length == 0) return true; // nothing to do — cheap exit
-
-    final report =
-        await OfflineQueueReplayer(store: store, client: client).replay();
-    // Ask the OS to retry later only if transient failures remain queued.
-    return report.reEnqueued == 0;
+    // Uploads, then the fetch steps. `false` asks the OS to retry later.
+    return await sync.runOnce();
   } finally {
+    await sync.dispose();
     client.close();
     await box.close(); // release the file for the next owner
   }
@@ -97,6 +117,11 @@ Future<bool> runBackgroundSync() async {
 ```
 
 Notes:
+- `runOnce()` needs no `start()` and no connectivity stream, and leaves no
+  timer behind, so the isolate can exit as soon as it returns.
+- Whatever the fetch steps write to (a Hive box, a database) is opened by this
+  isolate too: the same single-owner rule applies, which the hand-off above
+  already guarantees.
 - `IsolateNameServer` is in `dart:ui`, available in plugin-spawned background
   isolates.
 - Your auth `TokenStorage` must work from a background isolate.
@@ -230,7 +255,7 @@ final refresh = Timer.periodic(const Duration(minutes: 5), (_) {
 - [ ] Background callback **delegates via `IsolateNameServer`** when the app
       is alive — never two isolates on one Hive box
 - [ ] Background isolate closes the box in a `finally`
-- [ ] Return `report.reEnqueued == 0` so the OS retries only when useful
+- [ ] Return `runOnce()` from the task so the OS retries only when useful
 - [ ] `INTERNET` permission in the main Android manifest (release builds)
 - [ ] iOS: Background Modes capability + permitted identifier; expect
       opportunistic timing

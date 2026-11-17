@@ -1,3 +1,29 @@
+## 1.10.0
+
+**Release Date**: 2026-11-17  
+**Type**: Minor Release (offline sync sequencing)  
+**Breaking Changes**: None. Both options are off by default.
+
+### Added
+
+* `OfflineSyncManager.fetchSteps` — fetches that run in list order after the
+  queued uploads, and only once the queue is empty. A step that returns
+  `false` or throws stops the sequence and the pass is retried after
+  `retryDelay` while the device is online.
+* `OfflineSyncManager.runOnce()` — one pass of uploads then fetches that
+  returns whether everything finished, for an OS background task running
+  while the app is backgrounded or terminated. `BACKGROUND_SYNC.md` now uses
+  it, with one shared sync definition for the app and the task.
+* `OfflineQueueReplayer.haltOnFailure` (also on
+  `OfflineMutations.buildReplayer`) — stop a pass at the first request that is
+  put back for later, so a dependent write is never sent ahead of it.
+
+### Fixed
+
+* `OfflineSyncManager` now runs one pass at a time. Overlapping triggers
+  already shared one replay, but each one called `onReport` and scheduled its
+  own retry.
+
 ## 1.9.3
 
 **Release Date**: 2026-11-17  

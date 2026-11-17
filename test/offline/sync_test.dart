@@ -162,6 +162,225 @@ void main() {
     });
   });
 
+  group('OfflineSyncManager fetchSteps', () {
+    QueuedRequest queued(String id) => QueuedRequest(
+        id: id,
+        method: 'POST',
+        endpoint: id,
+        headers: const {},
+        createdAt: DateTime(2024));
+
+    test('run in order after the uploads, once per overlapping trigger',
+        () async {
+      final store = InMemoryOfflineQueueStore();
+      await store.enqueue(queued('save'));
+      final log = <String>[];
+      final mock = MockAdapter();
+      mock.onRequest('POST', RegExp(r'/save$'), (_) async {
+        log.add('upload');
+        return AdapterResponse(
+            statusCode: 200,
+            headers: const {'content-type': 'application/json'},
+            bodyBytes: _b('{}'));
+      });
+
+      final connectivity = StreamController<bool>();
+      final reports = <OfflineReplayReport>[];
+      final sync = OfflineSyncManager(
+        replayer: OfflineQueueReplayer(store: store, client: _client(mock)),
+        onlineStream: connectivity.stream,
+        onReport: reports.add,
+        fetchSteps: [
+          () async {
+            log.add('fetch a');
+            return true;
+          },
+          () async {
+            log.add('fetch b');
+            return true;
+          },
+        ],
+      );
+      addTearDown(() async {
+        await sync.dispose();
+        await connectivity.close();
+      });
+
+      sync.start();
+      connectivity
+        ..add(true)
+        ..add(true);
+      await sync.syncNow();
+      await pumpEventQueue();
+
+      expect(log, ['upload', 'fetch a', 'fetch b']);
+      expect(reports, hasLength(1));
+    });
+
+    test('are skipped while uploads are still queued, then run on the retry',
+        () async {
+      final store = InMemoryOfflineQueueStore();
+      await store.enqueue(queued('flaky'));
+      var sends = 0;
+      final mock = MockAdapter();
+      mock.onRequest('POST', RegExp(r'/flaky$'), (_) async {
+        if (++sends == 1) throw const NetworkError('dropped');
+        return AdapterResponse(
+            statusCode: 200,
+            headers: const {'content-type': 'application/json'},
+            bodyBytes: _b('{}'));
+      });
+
+      var fetches = 0;
+      final connectivity = StreamController<bool>();
+      final sync = OfflineSyncManager(
+        replayer: OfflineQueueReplayer(store: store, client: _client(mock)),
+        onlineStream: connectivity.stream,
+        retryDelay: const Duration(milliseconds: 50),
+        fetchSteps: [() async => ++fetches > 0],
+      );
+      addTearDown(() async {
+        await sync.dispose();
+        await connectivity.close();
+      });
+
+      sync.start();
+      connectivity.add(true);
+      await pumpEventQueue();
+      expect(fetches, 0, reason: 'a write is still queued');
+
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      expect(fetches, 1);
+    });
+
+    test('a failing or throwing step stops the sequence and is retried',
+        () async {
+      final log = <String>[];
+      var calls = 0;
+      final connectivity = StreamController<bool>();
+      final sync = OfflineSyncManager(
+        replayer: OfflineQueueReplayer(
+            store: InMemoryOfflineQueueStore(), client: _client(MockAdapter())),
+        onlineStream: connectivity.stream,
+        retryDelay: const Duration(milliseconds: 50),
+        fetchSteps: [
+          () async {
+            log.add('a');
+            switch (++calls) {
+              case 1:
+                return false;
+              case 2:
+                throw StateError('boom');
+            }
+            return true;
+          },
+          () async {
+            log.add('b');
+            return true;
+          },
+        ],
+      );
+      addTearDown(() async {
+        await sync.dispose();
+        await connectivity.close();
+      });
+
+      sync.start();
+      connectivity.add(true);
+      await pumpEventQueue();
+      expect(log, ['a']);
+
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      expect(log, ['a', 'a', 'a', 'b']);
+    });
+  });
+
+  group('OfflineSyncManager.runOnce (background task, no start/stream)', () {
+    test('uploads, fetches, and reports whether work is left', () async {
+      final store = InMemoryOfflineQueueStore();
+      await store.enqueue(QueuedRequest(
+          id: 'save',
+          method: 'POST',
+          endpoint: 'save',
+          headers: const {},
+          createdAt: DateTime(2024)));
+      var online = false;
+      final log = <String>[];
+      final mock = MockAdapter();
+      mock.onRequest('POST', RegExp(r'/save$'), (_) async {
+        if (!online) throw const NetworkError('dropped');
+        log.add('upload');
+        return AdapterResponse(
+            statusCode: 200,
+            headers: const {'content-type': 'application/json'},
+            bodyBytes: _b('{}'));
+      });
+      final sync = OfflineSyncManager(
+        replayer: OfflineQueueReplayer(store: store, client: _client(mock)),
+        fetchSteps: [
+          () async {
+            log.add('fetch');
+            return true;
+          },
+        ],
+      );
+      addTearDown(sync.dispose);
+
+      expect(await sync.runOnce(), isFalse, reason: 'upload still queued');
+      expect(log, isEmpty);
+
+      online = true;
+      expect(await sync.runOnce(), isTrue);
+      expect(log, ['upload', 'fetch']);
+
+      await sync.dispose();
+      expect(await sync.runOnce(), isFalse);
+    });
+  });
+
+  group('OfflineQueueReplayer haltOnFailure', () {
+    for (final peekable in [true, false]) {
+      test('stops at the first re-enqueued request (peekable: $peekable)',
+          () async {
+        final OfflineQueueStore store = peekable
+            ? InMemoryOfflineQueueStore()
+            : _DrainOnlyStore(InMemoryOfflineQueueStore());
+        for (final (i, id) in ['parent', 'child', 'grandchild'].indexed) {
+          await store.enqueue(QueuedRequest(
+              id: id,
+              method: 'POST',
+              endpoint: id,
+              headers: const {},
+              createdAt: DateTime(2024, 1, 1 + i)));
+        }
+        final sent = <String>[];
+        var online = false;
+        final mock = MockAdapter();
+        mock.onRequest('POST', RegExp(r'.*'), (req) async {
+          sent.add(req.url.pathSegments.last);
+          if (!online) throw const NetworkError('dropped');
+          return AdapterResponse(
+              statusCode: 200,
+              headers: const {'content-type': 'application/json'},
+              bodyBytes: _b('{}'));
+        });
+        final replayer = OfflineQueueReplayer(
+            store: store, client: _client(mock), haltOnFailure: true);
+
+        final first = await replayer.replay();
+        expect(sent, ['parent'], reason: 'nothing jumps ahead of parent');
+        expect(first.reEnqueued, 1);
+        expect(await store.length, 3, reason: 'the tail stays queued');
+
+        online = true;
+        sent.clear();
+        final second = await replayer.replay();
+        expect(sent, ['parent', 'child', 'grandchild']);
+        expect(second.succeeded, 3);
+      });
+    }
+  });
+
   group('OfflineAutoReplay', () {
     test('replays when connectivity emits online', () async {
       final store = InMemoryOfflineQueueStore();
@@ -198,4 +417,19 @@ void main() {
       await conn.close();
     });
   });
+}
+
+/// Hides `peekAll`, so the replayer takes its drain-based path.
+class _DrainOnlyStore implements OfflineQueueStore {
+  _DrainOnlyStore(this._inner);
+  final InMemoryOfflineQueueStore _inner;
+
+  @override
+  Future<void> enqueue(QueuedRequest request) => _inner.enqueue(request);
+  @override
+  Future<List<QueuedRequest>> drain() => _inner.drain();
+  @override
+  Future<void> remove(String id) => _inner.remove(id);
+  @override
+  Future<int> get length => _inner.length;
 }

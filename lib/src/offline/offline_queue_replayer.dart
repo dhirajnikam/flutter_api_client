@@ -100,6 +100,7 @@ class OfflineQueueReplayer {
     this.compare,
     this.onOutcome,
     this.neverSentMaxAge,
+    this.haltOnFailure = false,
   }) : assert(
           neverSentMaxAge == null || neverSentMaxAge >= Duration.zero,
           'neverSentMaxAge must not be negative',
@@ -142,6 +143,15 @@ class OfflineQueueReplayer {
   final FutureOr<void> Function(QueuedRequest request, ReplayOutcome outcome)?
       onOutcome;
 
+  /// When `true`, a pass stops at the first request that is put back for a
+  /// later pass, so nothing ordered after it is sent ahead of it — use it when
+  /// later writes depend on earlier ones (create the order, then its items).
+  /// The requests after it stay queued untouched and are not counted in the
+  /// report (a store without `peekAll` has them put back; one that cannot be
+  /// put back is dead-lettered). A dead-lettered request does not stop the pass. Defaults to
+  /// `false`: every request is tried each pass.
+  final bool haltOnFailure;
+
   Future<OfflineReplayReport>? _inFlight;
 
   /// Replays every pending request once, returning a report of how each one
@@ -165,7 +175,8 @@ class OfflineQueueReplayer {
     var reEnqueued = 0;
     var deadLettered = 0;
 
-    for (final request in pending) {
+    for (var i = 0; i < pending.length; i++) {
+      final request = pending[i];
       final atMostOnce = request.replaySafety == ReplaySafety.atMostOnce;
       var stored = persisted;
       Future<void> remove() async {
@@ -192,6 +203,7 @@ class OfflineQueueReplayer {
           // Could not remove it up front, so the at-most-once guarantee cannot
           // be honoured for this request. Skipping is the only safe choice:
           // sending now risks the duplicate this mode exists to prevent.
+          if (haltOnFailure) break;
           continue;
         }
       }
@@ -263,6 +275,23 @@ class OfflineQueueReplayer {
       }
       reEnqueued++;
       await onOutcome?.call(request, ReplayOutcome.reEnqueued);
+      if (haltOnFailure) {
+        // A drain-only store already handed the tail over; put it back.
+        if (!persisted) {
+          for (final rest in pending.skip(i + 1)) {
+            try {
+              await store.enqueue(rest);
+            } catch (_) {
+              // Could not be put back, so it is lost: report it like any
+              // other dropped write and keep restoring the others.
+              deadLettered++;
+              _notifyDeadLetter(rest, null);
+              await onOutcome?.call(rest, ReplayOutcome.deadLettered);
+            }
+          }
+        }
+        break;
+      }
     }
 
     return OfflineReplayReport(

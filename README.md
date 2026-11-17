@@ -1130,6 +1130,39 @@ if a pass leaves transient failures re-enqueued, another pass runs after
 `retryDelay` until the queue drains, connectivity drops, or the manager is
 disposed.
 
+**Upload first, then fetch, in an order you define** — uploads go out in
+priority order (`priority` / `compare`, above). Pass `haltOnFailure: true` to
+the replayer when later writes depend on earlier ones: the pass then stops at
+the first request that has to wait, instead of sending the ones behind it.
+`fetchSteps` run after that, in list order, and only once the queue is empty,
+so a pull never overwrites local changes that have not been sent yet:
+
+```dart
+final sync = OfflineSyncManager(
+  replayer: OfflineQueueReplayer(
+    store: store,
+    client: client,
+    haltOnFailure: true,          // never send an item before its order
+  ),
+  onlineStream: onlineStream,
+  fetchSteps: [                   // run in this order, after the uploads
+    () async => saveLocally(await client.get('profile')),
+    () async => saveLocally(await client.get('orders')),
+  ],
+);
+```
+
+Each step returns `true` on success. A step that returns `false` or throws
+stops the sequence, and the whole pass (uploads, then every step again) is
+retried after `retryDelay` while `onlineStream` reports online (with no
+stream, the next `syncNow()` retries). A request that is dead-lettered does
+not halt the pass, so the writes behind it are still sent. The steps also run when there was nothing to
+upload, so a plain reconnect still refreshes.
+
+From an OS background task (app in the background or terminated) call
+`await sync.runOnce()` instead: one pass of uploads then fetches, no `start()`
+or stream needed, returning `true` when nothing is left to do.
+
 **Syncing while the app is closed** — everything above runs inside your
 Flutter isolate, so it stops when the OS suspends the process (queued writes
 are safe on disk and drain at next launch via `replayOnStart`). If writes must
