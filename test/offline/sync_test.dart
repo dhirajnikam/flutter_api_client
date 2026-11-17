@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_api_client/flutter_api_client.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hive/hive.dart';
 
 Uint8List _b(String s) => Uint8List.fromList(utf8.encode(s));
 
@@ -335,6 +337,65 @@ void main() {
 
       await sync.dispose();
       expect(await sync.runOnce(), isFalse);
+    });
+  });
+
+  group('terminated app: a cold start drains what an earlier run queued', () {
+    test('runOnce on a reopened Hive box uploads in order, then fetches',
+        () async {
+      final dir = await Directory.systemTemp.createTemp('offline_cold');
+      Hive.init(dir.path);
+      addTearDown(() async {
+        await Hive.close();
+        await dir.delete(recursive: true);
+      });
+
+      // Session 1: the app queues two writes while offline, then is killed.
+      var box = await Hive.openBox<String>('cold_queue');
+      final offline = MockAdapter()
+        ..onRequest('POST', RegExp(r'.*'),
+            (_) async => throw const NetworkError('offline'));
+      final first = ApiClient(ApiClientConfig.test(
+        baseUrl: 'https://api.example.com',
+        adapter: offline,
+        interceptors: [
+          OfflineQueueInterceptor(
+            store: HiveOfflineQueueStore(box),
+            priorityOf: (req) => req.endpoint == 'order' ? 10 : 0,
+          ),
+        ],
+      ));
+      await first.post<dynamic>('item', {'n': 1});
+      await first.post<dynamic>('order', {'n': 2});
+      await box.close();
+
+      // Session 2: a background task with nothing but the persisted box.
+      box = await Hive.openBox<String>('cold_queue');
+      final log = <String>[];
+      final online = MockAdapter()
+        ..onRequest('POST', RegExp(r'.*'), (req) async {
+          log.add('upload ${req.url.pathSegments.last}');
+          return AdapterResponse(
+              statusCode: 200,
+              headers: const {'content-type': 'application/json'},
+              bodyBytes: _b('{}'));
+        });
+      final store = HiveOfflineQueueStore(box);
+      final sync = OfflineSyncManager(
+        replayer: OfflineQueueReplayer(
+            store: store, client: _client(online), haltOnFailure: true),
+        fetchSteps: [
+          () async {
+            log.add('fetch');
+            return true;
+          },
+        ],
+      );
+
+      expect(await sync.runOnce(), isTrue);
+      expect(log, ['upload order', 'upload item', 'fetch']);
+      expect(await store.length, 0);
+      await sync.dispose();
     });
   });
 

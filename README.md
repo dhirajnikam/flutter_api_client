@@ -922,8 +922,8 @@ final box = await Hive.openBox<String>('offline_queue');
 
 OfflineQueueInterceptor(
   store:    HiveOfflineQueueStore(box),
-  isOnline: () async => (await Connectivity().checkConnectivity())
-                        != ConnectivityResult.none,
+  isOnline: () async => !(await Connectivity().checkConnectivity())
+                        .contains(ConnectivityResult.none),
   methods:  {'POST', 'PUT', 'PATCH', 'DELETE'}, // default
   onQueued: (queued) => showSnackBar('Saved offline — will sync'), // optional
 )
@@ -1172,7 +1172,8 @@ land while the app *stays* closed, integrate `workmanager` /
 one hazard that can lose data: Hive boxes are not isolate-safe, so a
 background task must **delegate to the running app via `IsolateNameServer`**
 instead of opening the queue box from a second isolate. The guide also covers
-platform setup (no runtime permissions are needed on either platform) and
+platform setup and permissions (no runtime prompt on either platform, but
+`INTERNET` in the main Android manifest and two `Info.plist` keys on iOS) and
 periodic background pulls into the persistent cache.
 
 ---

@@ -14,7 +14,7 @@ import 'offline_queue_replayer.dart';
 /// auto.bind(
 ///   Connectivity()
 ///       .onConnectivityChanged
-///       .map((r) => r != ConnectivityResult.none),
+///       .map((r) => !r.contains(ConnectivityResult.none)),
 /// );
 /// // ... later, on logout / dispose:
 /// await auto.dispose();

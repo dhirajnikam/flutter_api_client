@@ -134,15 +134,48 @@ Notes:
 
 ---
 
-## 3. Android — workmanager
+## 3. Permissions and platform setup
+
+Checked against `workmanager` 0.10.x and `connectivity_plus` 7.x (November
+2026). Neither platform shows the user a permission prompt for this.
+
+| Platform | What | Where | Needed for |
+|---|---|---|---|
+| Android | `android.permission.INTERNET` | **main** `AndroidManifest.xml` (Flutter only adds it to debug/profile) | every API call, foreground or background |
+| Android | `ACCESS_NETWORK_STATE`, `WAKE_LOCK`, `RECEIVE_BOOT_COMPLETED`, `FOREGROUND_SERVICE` | nothing to add — merged in by `workmanager` / `connectivity_plus` | network constraint, running and rescheduling the task |
+| Android | `POST_NOTIFICATIONS` (runtime, Android 13+) | only if you opt into a foreground-service task | this guide does not use one |
+| iOS | `UIBackgroundModes` → `fetch` | `Info.plist` (Xcode: Background Modes → Background fetch) | background task at all |
+| iOS | `BGTaskSchedulerPermittedIdentifiers` → your task id | `Info.plist` | without it: `BGTaskSchedulerErrorDomain Code 3` |
+| iOS | plugin registrant callback | `AppDelegate.swift` (below) | `path_provider`, secure storage etc. inside the task |
+| iOS | deployment target 14.0+ | Xcode / `Podfile` | `workmanager` minimum |
+
+Not covered by any permission, so plan for them:
+
+- **Android battery optimisation.** Some vendors (Xiaomi, Oppo, Samsung
+  "sleeping apps") stop background work for apps the user has not exempted.
+- **iOS force-quit.** If the user swipes the app away, iOS runs no background
+  task for it until they open it again. Background App Refresh switched off,
+  or Low Power Mode, has the same effect.
+- **Connectivity events stop in the background.** On Android 8+ the
+  `connectivity_plus` stream is not delivered to a backgrounded app, so call
+  `syncNow()` on resume (section 1) as well as listening to the stream.
+
+---
+
+## 4. Wiring the task — workmanager
 
 ```yaml
 dependencies:
-  workmanager: ^0.5.2
+  workmanager: ^0.10.0
   path_provider: ^2.1.0
 ```
 
+Use one identifier everywhere. On iOS the unique name is the BGTaskScheduler
+identifier, so it must match `Info.plist` exactly.
+
 ```dart
+const kSyncTask = 'dev.yourapp.offlineSync';
+
 @pragma('vm:entry-point') // required: tree-shaking must keep this entry point
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
@@ -154,61 +187,58 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   Workmanager().initialize(callbackDispatcher);
   Workmanager().registerPeriodicTask(
-    'fac-offline-sync',            // unique name — re-registering replaces it
-    'offlineSync',
-    frequency: const Duration(minutes: 15), // Android's floor; shorter is ignored
+    kSyncTask, // unique name — re-registering does not duplicate it
+    kSyncTask,
+    frequency: const Duration(minutes: 15), // the floor on both platforms
     constraints: Constraints(
-      networkType: NetworkType.connected,  // don't wake up to fail offline
+      networkType: NetworkType.connected, // don't wake up to fail offline
     ),
-    existingWorkPolicy: ExistingWorkPolicy.keep,
   );
   runApp(const MyApp());
 }
 ```
 
-**Permissions:** none to add by hand. `workmanager` merges what it needs;
-`INTERNET` you already have for any API call (check it's in the **main**
-`AndroidManifest.xml`, not just debug — a classic release-build surprise).
-WorkManager survives reboots without `RECEIVE_BOOT_COMPLETED` on your part.
+**Android:** no native setup beyond `INTERNET` in the main manifest. The
+15-minute frequency is a *minimum interval*, not a schedule: Doze batches and
+defers. The `connected` constraint means the task tends to fire soon after
+connectivity returns, which is what a replay wants. Returning `false` from
+the task makes WorkManager retry with backoff.
 
-**Timing reality:** 15-minute frequency is a *minimum interval*, not a
-schedule. Doze mode batches and defers; the `connected` constraint means the
-task tends to fire soon after connectivity returns, which is exactly what a
-replay wants.
-
----
-
-## 4. iOS — BGTaskScheduler (via workmanager)
-
-iOS is opportunistic: **you cannot make it run at a set time.** The system
-decides based on user habits, charging state, and Low Power Mode. Treat iOS
-background sync as "sometimes sooner than next launch," never as a guarantee.
-
-1. Xcode → target → *Signing & Capabilities* → add **Background Modes** →
-   check *Background fetch* and *Background processing*.
-2. `Info.plist`:
+**iOS:** add to `Info.plist`:
 
 ```xml
+<key>UIBackgroundModes</key>
+<array>
+  <string>fetch</string>
+</array>
 <key>BGTaskSchedulerPermittedIdentifiers</key>
 <array>
   <string>dev.yourapp.offlineSync</string>
 </array>
 ```
 
-3. `AppDelegate.swift`, inside `didFinishLaunchingWithOptions`:
+and make plugins available to the background engine in `AppDelegate.swift`.
+Without this, `getApplicationDocumentsDirectory()` and your token storage
+throw a channel error inside the task:
 
 ```swift
-WorkmanagerPlugin.registerTask(withIdentifier: "dev.yourapp.offlineSync")
+import workmanager_apple
+
+// in application(_:didFinishLaunchingWithOptions:), before `return super...`
+WorkmanagerPlugin.registerLaunchHandlers() // needed once you adopt UIScene
+WorkmanagerPlugin.setPluginRegistrantCallback { registry in
+  GeneratedPluginRegistrant.register(with: registry)
+}
 ```
 
-4. Register from Dart with the same identifier
-   (`Workmanager().registerPeriodicTask("dev.yourapp.offlineSync", ...)`).
+iOS is opportunistic: **you cannot make it run at a set time.** The system
+decides from user habits, charging state and Low Power Mode, often about once
+a day. It has no retry backoff either, so a task that returns `false` simply
+waits for the next run. Treat iOS background sync as "sometimes sooner than
+next launch", never as a guarantee.
 
-No user-facing permission prompt on either platform — background execution is
-a capability/entitlement, not a runtime permission.
-
-Pin these steps against the `workmanager` README for your installed version;
-the iOS registration API has shifted between releases.
+The native API of `workmanager` has changed between releases; check these
+steps against its quick start for the version you install.
 
 ---
 
@@ -257,6 +287,7 @@ final refresh = Timer.periodic(const Duration(minutes: 5), (_) {
 - [ ] Background isolate closes the box in a `finally`
 - [ ] Return `runOnce()` from the task so the OS retries only when useful
 - [ ] `INTERNET` permission in the main Android manifest (release builds)
+- [ ] iOS: plugin registrant callback in `AppDelegate.swift`
 - [ ] iOS: Background Modes capability + permitted identifier; expect
       opportunistic timing
 - [ ] Test the real thing on a device: queue a write in airplane mode, kill

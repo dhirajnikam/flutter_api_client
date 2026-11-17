@@ -18,6 +18,13 @@
   `OfflineMutations.buildReplayer`) — stop a pass at the first request that is
   put back for later, so a dependent write is never sent ahead of it.
 
+### Documentation
+
+* `BACKGROUND_SYNC.md` platform setup rewritten for `workmanager` 0.10: a
+  permissions table, the iOS `Info.plist` keys and plugin registrant callback,
+  and the cases no permission covers (force-quit, battery optimisation).
+* Connectivity snippets use the list that `connectivity_plus` 6+ returns.
+
 ### Fixed
 
 * `OfflineSyncManager` now runs one pass at a time. Overlapping triggers
