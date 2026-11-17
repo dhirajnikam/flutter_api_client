@@ -1,7 +1,16 @@
+import 'dart:isolate';
+import 'dart:ui';
+
+import 'package:connectivity_plus/connectivity_plus.dart';
 // material_ui needs Flutter >=3.47; keep material.dart so older SDKs still build.
 // ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter_api_client/flutter_api_client.dart';
+import 'package:hive/hive.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:workmanager/workmanager.dart';
+
+import 'offline_sync.dart';
 
 // ---------------------------------------------------------------------------
 // Clients — one per base URL so interceptors are scoped correctly.
@@ -73,7 +82,116 @@ final _triviaClient = ApiClient(
 // App
 // ---------------------------------------------------------------------------
 
-void main() => runApp(const ExampleApp());
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Start syncing at launch, not when the tab is first opened, so the
+  // background task can always reach a running app.
+  _offlineSync.ignore();
+  runApp(const ExampleApp());
+}
+
+// ---------------------------------------------------------------------------
+// Offline sync: in the app, in the background, and after the app is killed.
+// See BACKGROUND_SYNC.md at the repository root.
+// ---------------------------------------------------------------------------
+
+/// The background task's id. On iOS it must also be listed in `Info.plist`.
+const kSyncTask = 'dev.example.flutterApiClientExample.offlineSync';
+
+/// Name the running app registers so a background task can find it.
+const kSyncPort = 'fac.offline.syncNow';
+
+/// Sync activity, newest last, shown on the Offline sync tab.
+final _syncLines = ValueNotifier<List<String>>(const []);
+
+void _syncLog(String line) {
+  debugPrint('FAC_SYNC $line');
+  _syncLines.value = [..._syncLines.value, line];
+}
+
+/// Both isolates open the queue from the same directory.
+Future<Box<String>> _openQueueBox() async {
+  final dir = await getApplicationDocumentsDirectory();
+  Hive.init(dir.path);
+  return Hive.openBox<String>('offline_queue');
+}
+
+typedef _OfflineSync = ({
+  ApiClient client,
+  HiveOfflineQueueStore store,
+  OfflineSyncManager sync,
+});
+
+final Future<_OfflineSync> _offlineSync = _startOfflineSync();
+
+Future<_OfflineSync> _startOfflineSync() async {
+  final store = HiveOfflineQueueStore(await _openQueueBox());
+  final client = buildSyncClient(store);
+  final sync = buildSync(
+    client,
+    store,
+    onlineStream: Connectivity().onConnectivityChanged.map(
+      (r) => !r.contains(ConnectivityResult.none),
+    ),
+    log: _syncLog,
+  )..start();
+
+  // Connectivity events are not delivered while backgrounded, so also sync
+  // whenever the app comes back to the foreground.
+  AppLifecycleListener(onResume: sync.syncNow);
+
+  // A background task that fires while the app is alive pokes this port
+  // instead of opening the queue box from a second isolate.
+  final port = ReceivePort();
+  IsolateNameServer.removePortNameMapping(kSyncPort);
+  IsolateNameServer.registerPortWithName(port.sendPort, kSyncPort);
+  port.listen((_) {
+    _syncLog('poked by the background task');
+    sync.syncNow();
+  });
+
+  await Workmanager().initialize(callbackDispatcher);
+  await Workmanager().registerPeriodicTask(
+    kSyncTask,
+    kSyncTask,
+    frequency: const Duration(minutes: 15),
+    constraints: Constraints(networkType: NetworkType.connected),
+  );
+  return (client: client, store: store, sync: sync);
+}
+
+@pragma('vm:entry-point') // keeps the entry point through tree-shaking
+void callbackDispatcher() {
+  Workmanager().executeTask((task, inputData) => runBackgroundSync());
+}
+
+/// Runs in the background isolate. Returns `false` to ask the OS to retry.
+Future<bool> runBackgroundSync() async {
+  final mainApp = IsolateNameServer.lookupPortByName(kSyncPort);
+  if (mainApp != null) {
+    debugPrint('FAC_SYNC [background] app is alive, handing off');
+    mainApp.send('sync');
+    return true;
+  }
+  debugPrint('FAC_SYNC [background] app is terminated, syncing here');
+  final box = await _openQueueBox();
+  final store = HiveOfflineQueueStore(box);
+  final client = buildSyncClient(store);
+  final sync = buildSync(
+    client,
+    store,
+    log: (line) => debugPrint('FAC_SYNC [background] $line'),
+  );
+  try {
+    final done = await sync.runOnce();
+    debugPrint('FAC_SYNC [background] finished, nothing left: $done');
+    return done;
+  } finally {
+    await sync.dispose();
+    client.close();
+    await box.close();
+  }
+}
 
 class ExampleApp extends StatelessWidget {
   const ExampleApp({super.key});
@@ -94,7 +212,7 @@ class _HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('flutter_api_client live demo'),
@@ -105,6 +223,7 @@ class _HomePage extends StatelessWidget {
               Tab(text: 'JSONPlaceholder'),
               Tab(text: 'Dog CEO'),
               Tab(text: 'Trivia'),
+              Tab(text: 'Offline sync'),
             ],
           ),
         ),
@@ -114,6 +233,7 @@ class _HomePage extends StatelessWidget {
             _JsonPlaceholderTab(),
             _DogTab(),
             _TriviaTab(),
+            _OfflineSyncTab(),
           ],
         ),
       ),
@@ -591,6 +711,93 @@ class _TriviaTabState extends State<_TriviaTab> {
           () => _fetchQuestions(type: 'boolean', amount: 5),
         ),
         _btn('GET easy question  →  ApiResult', _resultPattern),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tab 5 — Offline sync
+// ---------------------------------------------------------------------------
+
+class _OfflineSyncTab extends StatefulWidget {
+  const _OfflineSyncTab();
+
+  @override
+  State<_OfflineSyncTab> createState() => _OfflineSyncTabState();
+}
+
+class _OfflineSyncTabState extends State<_OfflineSyncTab> {
+  bool _loading = false;
+  int _queued = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncLines.addListener(_refresh);
+    _refresh();
+  }
+
+  @override
+  void dispose() {
+    _syncLines.removeListener(_refresh);
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    try {
+      final queued = await (await _offlineSync).store.length;
+      if (mounted) setState(() => _queued = queued);
+    } catch (e) {
+      _syncLines.removeListener(_refresh);
+      _syncLog('offline sync is unavailable here: $e');
+    }
+  }
+
+  Future<void> _run(Future<void> Function(_OfflineSync env) action) async {
+    setState(() => _loading = true);
+    try {
+      await action(await _offlineSync);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+      await _refresh();
+    }
+  }
+
+  // Two items are written before their order on purpose: the queue still
+  // sends the order first.
+  Future<void> _write(_OfflineSync env) async {
+    for (final (endpoint, body) in [
+      ('comments', {'postId': 1, 'body': 'item 1'}),
+      ('comments', {'postId': 1, 'body': 'item 2'}),
+      ('posts', {'title': 'order'}),
+    ]) {
+      final result = await env.client.post<dynamic>(endpoint, body);
+      _syncLog(
+        'write POST $endpoint ${result.isSuccess ? 'sent' : 'queued offline'}',
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _TabLayout(
+      description:
+          'Writes made offline are queued on disk. When the network returns '
+          'they upload order-first, then the fetches run in sequence — in '
+          'the app, from a background task, and after the app is killed.',
+      loading: _loading,
+      output: 'Queued writes: $_queued\n\n${_syncLines.value.join('\n')}',
+      buttons: [
+        FilledButton(
+          onPressed: _loading ? null : () => _run(_write),
+          child: const Text('Write 2 items + 1 order'),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton(
+          onPressed: _loading ? null : () => _run((env) => env.sync.syncNow()),
+          child: const Text('Sync now'),
+        ),
       ],
     );
   }
