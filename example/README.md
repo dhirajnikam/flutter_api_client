@@ -29,6 +29,14 @@ A comprehensive demo app showcasing all features of `flutter_api_client` using r
 - **Query parameters**: URL building with `RequestOptions.queryParameters`
 - **Progress tracking**: Upload/download callbacks ready to use
 
+### 📴 Offline sync (Android and iOS)
+- **Offline sync tab**: writes made offline are queued on disk, then uploaded
+  order-first and followed by fetches when the network returns
+- Works with the app open, in the background, and after it is killed, using
+  `workmanager` — see `BACKGROUND_SYNC.md` at the repository root
+- The sequence lives in `lib/offline_sync.dart`; the platform wiring is at the
+  top of `lib/main.dart`
+
 ### 📋 Real APIs Used
 
 | Tab | Base URL | Features |

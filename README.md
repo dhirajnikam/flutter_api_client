@@ -1173,7 +1173,8 @@ one hazard that can lose data: Hive boxes are not isolate-safe, so a
 background task must **delegate to the running app via `IsolateNameServer`**
 instead of opening the queue box from a second isolate. The guide also covers
 platform setup and permissions (no runtime prompt on either platform, but
-`INTERNET` in the main Android manifest and two `Info.plist` keys on iOS) and
+`INTERNET` in the main Android manifest, and two `Info.plist` keys plus a
+task registration in `AppDelegate.swift` on iOS) and
 periodic background pulls into the persistent cache.
 
 ---

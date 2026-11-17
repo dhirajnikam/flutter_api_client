@@ -8,8 +8,14 @@ import workmanager_apple
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    // Re-register background task handlers before launch finishes, and make
-    // plugins (path_provider) available to the background engine.
+    // Make plugins (path_provider) available to the background engine.
+    // iOS only accepts a task whose handler was registered before launch
+    // finished; scheduling it from Dart alone crashes with "No launch handler
+    // registered". The identifier must match Info.plist and the Dart code.
+    WorkmanagerPlugin.registerPeriodicTask(
+      withIdentifier: "dev.example.flutterApiClientExample.offlineSync",
+      frequency: NSNumber(value: 15 * 60)
+    )
     WorkmanagerPlugin.registerLaunchHandlers()
     WorkmanagerPlugin.setPluginRegistrantCallback { registry in
       GeneratedPluginRegistrant.register(with: registry)

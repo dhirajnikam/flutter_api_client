@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:isolate';
 import 'dart:ui';
 
@@ -98,6 +99,9 @@ void main() {
 /// The background task's id. On iOS it must also be listed in `Info.plist`.
 const kSyncTask = 'dev.example.flutterApiClientExample.offlineSync';
 
+/// One-off task asked for whenever a write is queued (Android).
+const kSyncOnConnectTask = 'dev.example.flutterApiClientExample.syncOnConnect';
+
 /// Name the running app registers so a background task can find it.
 const kSyncPort = 'fac.offline.syncNow';
 
@@ -126,13 +130,14 @@ final Future<_OfflineSync> _offlineSync = _startOfflineSync();
 
 Future<_OfflineSync> _startOfflineSync() async {
   final store = HiveOfflineQueueStore(await _openQueueBox());
-  final client = buildSyncClient(store);
+  final client = buildSyncClient(store, onQueued: _syncWhenConnected);
   final sync = buildSync(
     client,
     store,
-    onlineStream: Connectivity().onConnectivityChanged.map(
-      (r) => !r.contains(ConnectivityResult.none),
-    ),
+    // The plugin repeats events; distinct() gives one sync per change.
+    onlineStream: Connectivity().onConnectivityChanged
+        .map((r) => !r.contains(ConnectivityResult.none))
+        .distinct(),
     log: _syncLog,
   )..start();
 
@@ -160,9 +165,26 @@ Future<_OfflineSync> _startOfflineSync() async {
   return (client: client, store: store, sync: sync);
 }
 
+/// The periodic task can be up to 15 minutes away. So that a write queued just
+/// before the app is killed does not wait that long, ask Android for one run
+/// as soon as there is a network. (iOS offers nothing this prompt.)
+void _syncWhenConnected(QueuedRequest _) {
+  if (!Platform.isAndroid) return;
+  Workmanager().registerOneOffTask(
+    kSyncOnConnectTask,
+    kSyncOnConnectTask,
+    constraints: Constraints(networkType: NetworkType.connected),
+    // Safe to replace: while the app is alive a running task only pokes it.
+    existingWorkPolicy: ExistingWorkPolicy.replace,
+  );
+}
+
 @pragma('vm:entry-point') // keeps the entry point through tree-shaking
 void callbackDispatcher() {
-  Workmanager().executeTask((task, inputData) => runBackgroundSync());
+  Workmanager().executeTask((task, inputData) {
+    debugPrint('FAC_SYNC [background] task $task started');
+    return runBackgroundSync();
+  });
 }
 
 /// Runs in the background isolate. Returns `false` to ask the OS to retry.

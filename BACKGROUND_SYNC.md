@@ -136,16 +136,29 @@ Notes:
 
 ## 3. Permissions and platform setup
 
+The example app (`example/`, **Offline sync** tab) is this guide as running
+code. What was run on it:
+
+| Scenario | Android emulator (API 32) | iOS simulator |
+|---|---|---|
+| App open: queue offline, reconnect | uploads in order, then fetches | launches and syncs; offline flow not driven |
+| Dependent writes while still offline | stops at the order, items not sent | — |
+| Backgrounded, task fires | hands off to the running app | cannot be triggered on a simulator |
+| Terminated, network returns | task uploads in order, then fetches | cannot be triggered on a simulator |
+
+iOS background and terminated runs need a real device.
+
 Checked against `workmanager` 0.10.x and `connectivity_plus` 7.x (November
 2026). Neither platform shows the user a permission prompt for this.
 
 | Platform | What | Where | Needed for |
 |---|---|---|---|
 | Android | `android.permission.INTERNET` | **main** `AndroidManifest.xml` (Flutter only adds it to debug/profile) | every API call, foreground or background |
-| Android | `ACCESS_NETWORK_STATE`, `WAKE_LOCK`, `RECEIVE_BOOT_COMPLETED`, `FOREGROUND_SERVICE` | nothing to add — merged in by `workmanager` / `connectivity_plus` | network constraint, running and rescheduling the task |
-| Android | `POST_NOTIFICATIONS` (runtime, Android 13+) | only if you opt into a foreground-service task | this guide does not use one |
+| Android | `ACCESS_NETWORK_STATE`, `WAKE_LOCK`, `RECEIVE_BOOT_COMPLETED`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SHORT_SERVICE` | nothing to add — merged in by the plugins (confirmed in the example's release APK) | network constraint, running and rescheduling the task |
+| Android | `POST_NOTIFICATIONS` | declared by `workmanager`; ask for it at runtime (Android 13+) only if you opt into a foreground-service task | this guide does not use one |
 | iOS | `UIBackgroundModes` → `fetch` | `Info.plist` (Xcode: Background Modes → Background fetch) | background task at all |
 | iOS | `BGTaskSchedulerPermittedIdentifiers` → your task id | `Info.plist` | without it: `BGTaskSchedulerErrorDomain Code 3` |
+| iOS | task registration at launch | `AppDelegate.swift` (below) | without it the app crashes when the task is scheduled |
 | iOS | plugin registrant callback | `AppDelegate.swift` (below) | `path_provider`, secure storage etc. inside the task |
 | iOS | deployment target 14.0+ | Xcode / `Podfile` | `workmanager` minimum |
 
@@ -204,6 +217,31 @@ defers. The `connected` constraint means the task tends to fire soon after
 connectivity returns, which is what a replay wants. Returning `false` from
 the task makes WorkManager retry with backoff.
 
+**Android: do not wait for the periodic task.** It can be up to 15 minutes
+away, and WorkManager will not run it early. Ask for one extra run as soon as
+there is a network, every time a write is queued:
+
+```dart
+OfflineQueueInterceptor(
+  store: store,
+  onQueued: (_) {
+    // Android only: on iOS an identifier that was not registered at launch
+    // crashes the app.
+    if (!Platform.isAndroid) return;
+    Workmanager().registerOneOffTask(
+      'dev.yourapp.syncOnConnect',
+      'dev.yourapp.syncOnConnect',
+      constraints: Constraints(networkType: NetworkType.connected),
+      // Safe to replace: while the app is alive a running task only pokes it.
+      existingWorkPolicy: ExistingWorkPolicy.replace,
+    );
+  },
+)
+```
+
+On the emulator this uploaded a killed app's queue two seconds after the
+network came back. iOS has no equivalent.
+
 **iOS:** add to `Info.plist`:
 
 ```xml
@@ -217,14 +255,24 @@ the task makes WorkManager retry with backoff.
 </array>
 ```
 
-and make plugins available to the background engine in `AppDelegate.swift`.
-Without this, `getApplicationDocumentsDirectory()` and your token storage
-throw a channel error inside the task:
+and two things in `AppDelegate.swift`:
+
+- **Register the task before launch finishes.** The `workmanager` quick start
+  calls this optional; it is not. Scheduling the task from Dart alone crashed
+  the example app at launch with `No launch handler registered for task with
+  identifier ...`.
+- **Make plugins available to the background engine.** Without this,
+  `getApplicationDocumentsDirectory()` and your token storage throw a channel
+  error inside the task.
 
 ```swift
 import workmanager_apple
 
 // in application(_:didFinishLaunchingWithOptions:), before `return super...`
+WorkmanagerPlugin.registerPeriodicTask(
+  withIdentifier: "dev.yourapp.offlineSync", // same id as Info.plist and Dart
+  frequency: NSNumber(value: 15 * 60)
+)
 WorkmanagerPlugin.registerLaunchHandlers() // needed once you adopt UIScene
 WorkmanagerPlugin.setPluginRegistrantCallback { registry in
   GeneratedPluginRegistrant.register(with: registry)
@@ -287,7 +335,9 @@ final refresh = Timer.periodic(const Duration(minutes: 5), (_) {
 - [ ] Background isolate closes the box in a `finally`
 - [ ] Return `runOnce()` from the task so the OS retries only when useful
 - [ ] `INTERNET` permission in the main Android manifest (release builds)
-- [ ] iOS: plugin registrant callback in `AppDelegate.swift`
+- [ ] iOS: task registered and plugin registrant callback set in
+      `AppDelegate.swift`
+- [ ] Android: one-off "sync when connected" task from `onQueued`
 - [ ] iOS: Background Modes capability + permitted identifier; expect
       opportunistic timing
 - [ ] Test the real thing on a device: queue a write in airplane mode, kill

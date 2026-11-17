@@ -18,11 +18,19 @@
   `OfflineMutations.buildReplayer`) — stop a pass at the first request that is
   put back for later, so a dependent write is never sent ahead of it.
 
+### Example
+
+* New **Offline sync** tab, with Android and iOS platform folders, running the
+  `BACKGROUND_SYNC.md` recipe: sync in the app, from a background task, and
+  after the app is killed.
+
 ### Documentation
 
 * `BACKGROUND_SYNC.md` platform setup rewritten for `workmanager` 0.10: a
   permissions table, the iOS `Info.plist` keys and plugin registrant callback,
-  and the cases no permission covers (force-quit, battery optimisation).
+  and the cases no permission covers (force-quit, battery optimisation). It
+  now also registers the iOS task at launch (the app crashes without it) and
+  asks Android for a run as soon as the network returns.
 * Connectivity snippets use the list that `connectivity_plus` 6+ returns.
 
 ### Fixed
