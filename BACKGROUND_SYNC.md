@@ -68,6 +68,29 @@ void registerSyncPort(OfflineSyncManager sync) {
 // On logout/teardown: IsolateNameServer.removePortNameMapping(kSyncPort);
 ```
 
+Define the sync once, so the foreground app and the background task send and
+fetch in the same order:
+
+```dart
+// ---- shared by both isolates ----
+OfflineSyncManager buildSync(ApiClient client, OfflineQueueStore store,
+        {Stream<bool>? onlineStream}) =>
+    OfflineSyncManager(
+      replayer: OfflineQueueReplayer(
+        store: store,
+        client: client,
+        haltOnFailure: true, // dependent writes keep their order
+      ),
+      onlineStream: onlineStream,
+      replayOnStart: onlineStream != null,
+      fetchSteps: [
+        // after the uploads, in this order
+        () async => saveProfile(await client.get('profile')),
+        () async => saveOrders(await client.get('orders')),
+      ],
+    );
+```
+
 ```dart
 // ---- background isolate (inside the task callback) ----
 Future<bool> runBackgroundSync() async {
@@ -76,20 +99,17 @@ Future<bool> runBackgroundSync() async {
     mainApp.send('sync'); // app is alive — IT owns the box; we just poke it
     return true;
   }
-  // App is dead: this isolate is the sole owner. Safe to open Hive.
+  // App is terminated: this isolate is the sole owner. Safe to open Hive.
   final dir = await getApplicationDocumentsDirectory();
   Hive.init(dir.path);
   final box = await Hive.openBox<String>('offline_queue');
   final client = buildApiClient(); // your usual factory: baseUrl, auth, retries
+  final sync = buildSync(client, HiveOfflineQueueStore(box));
   try {
-    final store = HiveOfflineQueueStore(box);
-    if (await store.length == 0) return true; // nothing to do — cheap exit
-
-    final report =
-        await OfflineQueueReplayer(store: store, client: client).replay();
-    // Ask the OS to retry later only if transient failures remain queued.
-    return report.reEnqueued == 0;
+    // Uploads, then the fetch steps. `false` asks the OS to retry later.
+    return await sync.runOnce();
   } finally {
+    await sync.dispose();
     client.close();
     await box.close(); // release the file for the next owner
   }
@@ -97,6 +117,11 @@ Future<bool> runBackgroundSync() async {
 ```
 
 Notes:
+- `runOnce()` needs no `start()` and no connectivity stream, and leaves no
+  timer behind, so the isolate can exit as soon as it returns.
+- Whatever the fetch steps write to (a Hive box, a database) is opened by this
+  isolate too: the same single-owner rule applies, which the hand-off above
+  already guarantees.
 - `IsolateNameServer` is in `dart:ui`, available in plugin-spawned background
   isolates.
 - Your auth `TokenStorage` must work from a background isolate.
@@ -109,15 +134,61 @@ Notes:
 
 ---
 
-## 3. Android — workmanager
+## 3. Permissions and platform setup
+
+The example app (`example/`, **Offline sync** tab) is this guide as running
+code. What was run on it:
+
+| Scenario | Android emulator (API 32) | iOS simulator |
+|---|---|---|
+| App open: queue offline, reconnect | uploads in order, then fetches | launches and syncs; offline flow not driven |
+| Dependent writes while still offline | stops at the order, items not sent | — |
+| Backgrounded, task fires | hands off to the running app | cannot be triggered on a simulator |
+| Terminated, network returns | task uploads in order, then fetches | cannot be triggered on a simulator |
+
+iOS background and terminated runs need a real device.
+
+Checked against `workmanager` 0.10.x and `connectivity_plus` 7.x (November
+2026). Neither platform shows the user a permission prompt for this.
+
+| Platform | What | Where | Needed for |
+|---|---|---|---|
+| Android | `android.permission.INTERNET` | **main** `AndroidManifest.xml` (Flutter only adds it to debug/profile) | every API call, foreground or background |
+| Android | `ACCESS_NETWORK_STATE`, `WAKE_LOCK`, `RECEIVE_BOOT_COMPLETED`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SHORT_SERVICE` | nothing to add — merged in by the plugins (confirmed in the example's release APK) | network constraint, running and rescheduling the task |
+| Android | `POST_NOTIFICATIONS` | declared by `workmanager`; ask for it at runtime (Android 13+) only if you opt into a foreground-service task | this guide does not use one |
+| iOS | `UIBackgroundModes` → `fetch` | `Info.plist` (Xcode: Background Modes → Background fetch) | background task at all |
+| iOS | `BGTaskSchedulerPermittedIdentifiers` → your task id | `Info.plist` | without it: `BGTaskSchedulerErrorDomain Code 3` |
+| iOS | task registration at launch | `AppDelegate.swift` (below) | without it the app crashes when the task is scheduled |
+| iOS | plugin registrant callback | `AppDelegate.swift` (below) | `path_provider`, secure storage etc. inside the task |
+| iOS | deployment target 14.0+ | Xcode / `Podfile` | `workmanager` minimum |
+
+Not covered by any permission, so plan for them:
+
+- **Android battery optimisation.** Some vendors (Xiaomi, Oppo, Samsung
+  "sleeping apps") stop background work for apps the user has not exempted.
+- **iOS force-quit.** If the user swipes the app away, iOS runs no background
+  task for it until they open it again. Background App Refresh switched off,
+  or Low Power Mode, has the same effect.
+- **Connectivity events stop in the background.** On Android 8+ the
+  `connectivity_plus` stream is not delivered to a backgrounded app, so call
+  `syncNow()` on resume (section 1) as well as listening to the stream.
+
+---
+
+## 4. Wiring the task — workmanager
 
 ```yaml
 dependencies:
-  workmanager: ^0.5.2
+  workmanager: ^0.10.0
   path_provider: ^2.1.0
 ```
 
+Use one identifier everywhere. On iOS the unique name is the BGTaskScheduler
+identifier, so it must match `Info.plist` exactly.
+
 ```dart
+const kSyncTask = 'dev.yourapp.offlineSync';
+
 @pragma('vm:entry-point') // required: tree-shaking must keep this entry point
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
@@ -129,61 +200,93 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   Workmanager().initialize(callbackDispatcher);
   Workmanager().registerPeriodicTask(
-    'fac-offline-sync',            // unique name — re-registering replaces it
-    'offlineSync',
-    frequency: const Duration(minutes: 15), // Android's floor; shorter is ignored
+    kSyncTask, // unique name — re-registering does not duplicate it
+    kSyncTask,
+    frequency: const Duration(minutes: 15), // the floor on both platforms
     constraints: Constraints(
-      networkType: NetworkType.connected,  // don't wake up to fail offline
+      networkType: NetworkType.connected, // don't wake up to fail offline
     ),
-    existingWorkPolicy: ExistingWorkPolicy.keep,
   );
   runApp(const MyApp());
 }
 ```
 
-**Permissions:** none to add by hand. `workmanager` merges what it needs;
-`INTERNET` you already have for any API call (check it's in the **main**
-`AndroidManifest.xml`, not just debug — a classic release-build surprise).
-WorkManager survives reboots without `RECEIVE_BOOT_COMPLETED` on your part.
+**Android:** no native setup beyond `INTERNET` in the main manifest. The
+15-minute frequency is a *minimum interval*, not a schedule: Doze batches and
+defers. The `connected` constraint means the task tends to fire soon after
+connectivity returns, which is what a replay wants. Returning `false` from
+the task makes WorkManager retry with backoff.
 
-**Timing reality:** 15-minute frequency is a *minimum interval*, not a
-schedule. Doze mode batches and defers; the `connected` constraint means the
-task tends to fire soon after connectivity returns, which is exactly what a
-replay wants.
+**Android: do not wait for the periodic task.** It can be up to 15 minutes
+away, and WorkManager will not run it early. Ask for one extra run as soon as
+there is a network, every time a write is queued:
 
----
+```dart
+OfflineQueueInterceptor(
+  store: store,
+  onQueued: (_) {
+    // Android only: on iOS an identifier that was not registered at launch
+    // crashes the app.
+    if (!Platform.isAndroid) return;
+    Workmanager().registerOneOffTask(
+      'dev.yourapp.syncOnConnect',
+      'dev.yourapp.syncOnConnect',
+      constraints: Constraints(networkType: NetworkType.connected),
+      // Safe to replace: while the app is alive a running task only pokes it.
+      existingWorkPolicy: ExistingWorkPolicy.replace,
+    );
+  },
+)
+```
 
-## 4. iOS — BGTaskScheduler (via workmanager)
+On the emulator this uploaded a killed app's queue two seconds after the
+network came back. iOS has no equivalent.
 
-iOS is opportunistic: **you cannot make it run at a set time.** The system
-decides based on user habits, charging state, and Low Power Mode. Treat iOS
-background sync as "sometimes sooner than next launch," never as a guarantee.
-
-1. Xcode → target → *Signing & Capabilities* → add **Background Modes** →
-   check *Background fetch* and *Background processing*.
-2. `Info.plist`:
+**iOS:** add to `Info.plist`:
 
 ```xml
+<key>UIBackgroundModes</key>
+<array>
+  <string>fetch</string>
+</array>
 <key>BGTaskSchedulerPermittedIdentifiers</key>
 <array>
   <string>dev.yourapp.offlineSync</string>
 </array>
 ```
 
-3. `AppDelegate.swift`, inside `didFinishLaunchingWithOptions`:
+and two things in `AppDelegate.swift`:
+
+- **Register the task before launch finishes.** The `workmanager` quick start
+  calls this optional; it is not. Scheduling the task from Dart alone crashed
+  the example app at launch with `No launch handler registered for task with
+  identifier ...`.
+- **Make plugins available to the background engine.** Without this,
+  `getApplicationDocumentsDirectory()` and your token storage throw a channel
+  error inside the task.
 
 ```swift
-WorkmanagerPlugin.registerTask(withIdentifier: "dev.yourapp.offlineSync")
+import workmanager_apple
+
+// in application(_:didFinishLaunchingWithOptions:), before `return super...`
+WorkmanagerPlugin.registerPeriodicTask(
+  withIdentifier: "dev.yourapp.offlineSync", // same id as Info.plist and Dart
+  frequency: NSNumber(value: 15 * 60)
+)
+WorkmanagerPlugin.registerLaunchHandlers() // needed once you adopt UIScene
+WorkmanagerPlugin.setPluginRegistrantCallback { registry in
+  GeneratedPluginRegistrant.register(with: registry)
+}
 ```
 
-4. Register from Dart with the same identifier
-   (`Workmanager().registerPeriodicTask("dev.yourapp.offlineSync", ...)`).
+iOS is opportunistic: **you cannot make it run at a set time.** The system
+decides from user habits, charging state and Low Power Mode, often about once
+a day. It has no retry backoff either, so a task that returns `false` simply
+waits for the next run. Treat iOS background sync as "sometimes sooner than
+next launch", never as a guarantee.
 
-No user-facing permission prompt on either platform — background execution is
-a capability/entitlement, not a runtime permission.
-
-Pin these steps against the `workmanager` README for your installed version;
-the iOS registration API has shifted between releases.
+The native API of `workmanager` has changed between releases; check these
+steps against its quick start for the version you install.
 
 ---
 
@@ -230,8 +333,11 @@ final refresh = Timer.periodic(const Duration(minutes: 5), (_) {
 - [ ] Background callback **delegates via `IsolateNameServer`** when the app
       is alive — never two isolates on one Hive box
 - [ ] Background isolate closes the box in a `finally`
-- [ ] Return `report.reEnqueued == 0` so the OS retries only when useful
+- [ ] Return `runOnce()` from the task so the OS retries only when useful
 - [ ] `INTERNET` permission in the main Android manifest (release builds)
+- [ ] iOS: task registered and plugin registrant callback set in
+      `AppDelegate.swift`
+- [ ] Android: one-off "sync when connected" task from `onQueued`
 - [ ] iOS: Background Modes capability + permitted identifier; expect
       opportunistic timing
 - [ ] Test the real thing on a device: queue a write in airplane mode, kill
