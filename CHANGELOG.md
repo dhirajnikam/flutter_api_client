@@ -1,3 +1,23 @@
+## 1.9.3
+
+**Release Date**: 2026-11-17  
+**Type**: Patch Release (dependency declaration and project tooling only)  
+**Breaking Changes**: None. No library code changed.
+
+### Changed
+
+* `build_config: ^1.3.0` is now a declared dependency, as its documentation
+  asks of any package published with a `build.yaml`. It was already resolved
+  transitively through `build_runner`.
+* The example app now has a `build.yaml` that opts into the builders, so
+  `dart run build_runner build` there regenerates its checked-in files.
+
+### Internal
+
+* CI fails on an import cycle between files under `lib/` (`lakos`), and
+  regenerates and tests the example app so a break in the builder path is caught.
+* Added `AGENTS.md` with the check commands and the folder import direction.
+
 ## 1.9.2
 
 **Release Date**: 2026-11-16  

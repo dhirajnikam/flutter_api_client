@@ -33,3 +33,6 @@ doc/
 .worktrees/
 .claude/
 *.vsix
+
+# Agent instructions for working on the repo (not needed by package users)
+AGENTS.md

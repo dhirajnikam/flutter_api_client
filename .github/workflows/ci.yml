@@ -24,3 +24,11 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze
       - run: flutter test
+      # Fails on an import cycle between files under lib/.
+      - run: dart run lakos -o /dev/null lib
+      # The builder path: regenerate the example and require no diff.
+      - working-directory: example
+        run: |
+          dart run build_runner build --delete-conflicting-outputs
+          git diff --exit-code -- lib
+          flutter test

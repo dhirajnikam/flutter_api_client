@@ -1,0 +1,8 @@
+# Opts this app into flutter_api_client's builders (they do not auto-apply).
+targets:
+  $default:
+    builders:
+      flutter_api_client|api_spec_builder:
+        enabled: true
+      flutter_api_client|api_spec_test_builder:
+        enabled: true
