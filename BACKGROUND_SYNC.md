@@ -52,18 +52,32 @@ the offline queue exists to prevent.
 
 **The fix is ownership hand-off, not locking.** The background isolate first
 asks "is the main app alive?" via `IsolateNameServer`. If yes, it *delegates*
-(the main isolate already has the box open and a sync manager running); only
-if the app is dead does it open Hive itself.
+(the main isolate already has the box open and a sync manager running) **and
+waits for the result**; only if the app is dead does it open Hive itself.
+
+Waiting matters on iOS: the system suspends the app the moment the task
+reports completion, so a task that pokes the app and returns at once cuts the
+sync off before anything is sent.
 
 ```dart
 // ---- main isolate (app startup) ----
 const kSyncPort = 'fac.offline.syncNow';
 
-void registerSyncPort(OfflineSyncManager sync) {
+// Call this BEFORE opening the queue box: a task that fires during startup
+// must find the port, or it opens the box from a second isolate. `run` can
+// await your (still initialising) sync manager, e.g.
+// `() async => (await syncManager).runOnce()`.
+void serveBackgroundSync(Future<bool> Function() run) {
   final port = ReceivePort();
   IsolateNameServer.removePortNameMapping(kSyncPort); // stale from hot-restart
   IsolateNameServer.registerPortWithName(port.sendPort, kSyncPort);
-  port.listen((_) => sync.syncNow());
+  port.listen((reply) async {
+    var done = false;
+    try {
+      done = await run();
+    } catch (_) {} // report "work left"
+    (reply as SendPort).send(done);
+  });
 }
 // On logout/teardown: IsolateNameServer.removePortNameMapping(kSyncPort);
 ```
@@ -96,8 +110,17 @@ OfflineSyncManager buildSync(ApiClient client, OfflineQueueStore store,
 Future<bool> runBackgroundSync() async {
   final mainApp = IsolateNameServer.lookupPortByName(kSyncPort);
   if (mainApp != null) {
-    mainApp.send('sync'); // app is alive — IT owns the box; we just poke it
-    return true;
+    // App is alive — IT owns the box. Ask it to sync and wait for the answer,
+    // staying under the ~30 s iOS gives a refresh task.
+    final reply = ReceivePort();
+    mainApp.send(reply.sendPort);
+    try {
+      return await reply.first.timeout(const Duration(seconds: 25)) as bool;
+    } on TimeoutException {
+      return false;
+    } finally {
+      reply.close();
+    }
   }
   // App is terminated: this isolate is the sole owner. Safe to open Hive.
   final dir = await getApplicationDocumentsDirectory();
@@ -225,14 +248,14 @@ there is a network, every time a write is queued:
 OfflineQueueInterceptor(
   store: store,
   onQueued: (_) {
-    // Android only: on iOS an identifier that was not registered at launch
-    // crashes the app.
+    // Android only: iOS has no network trigger, so there the task would run
+    // at once, while still offline.
     if (!Platform.isAndroid) return;
     Workmanager().registerOneOffTask(
       'dev.yourapp.syncOnConnect',
       'dev.yourapp.syncOnConnect',
       constraints: Constraints(networkType: NetworkType.connected),
-      // Safe to replace: while the app is alive a running task only pokes it.
+      // Safe to replace: while the app is alive a running task only asks it.
       existingWorkPolicy: ExistingWorkPolicy.replace,
     );
   },
@@ -271,13 +294,17 @@ import workmanager_apple
 // in application(_:didFinishLaunchingWithOptions:), before `return super...`
 WorkmanagerPlugin.registerPeriodicTask(
   withIdentifier: "dev.yourapp.offlineSync", // same id as Info.plist and Dart
-  frequency: NSNumber(value: 15 * 60)
+  earliestBeginInSeconds: NSNumber(value: 15 * 60)
 )
 WorkmanagerPlugin.registerLaunchHandlers() // needed once you adopt UIScene
 WorkmanagerPlugin.setPluginRegistrantCallback { registry in
   GeneratedPluginRegistrant.register(with: registry)
 }
 ```
+
+On iOS the Dart `frequency` and `constraints` are ignored: the earliest next
+run comes from the `AppDelegate` value above, and there is no network
+constraint, so a run can start offline (`runOnce()` then returns `false`).
 
 iOS is opportunistic: **you cannot make it run at a set time.** The system
 decides from user habits, charging state and Low Power Mode, often about once
@@ -331,7 +358,8 @@ final refresh = Timer.periodic(const Duration(minutes: 5), (_) {
 - [ ] `syncNow()` on app resume
 - [ ] Only add `workmanager` if writes must land while the app stays closed
 - [ ] Background callback **delegates via `IsolateNameServer`** when the app
-      is alive — never two isolates on one Hive box
+      is alive, and waits for its result — never two isolates on one Hive box
+- [ ] The port is registered before the queue box is opened
 - [ ] Background isolate closes the box in a `finally`
 - [ ] Return `runOnce()` from the task so the OS retries only when useful
 - [ ] `INTERNET` permission in the main Android manifest (release builds)

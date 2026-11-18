@@ -1,6 +1,4 @@
 import 'dart:io';
-import 'dart:isolate';
-import 'dart:ui';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 // material_ui needs Flutter >=3.47; keep material.dart so older SDKs still build.
@@ -102,9 +100,6 @@ const kSyncTask = 'dev.example.flutterApiClientExample.offlineSync';
 /// One-off task asked for whenever a write is queued (Android).
 const kSyncOnConnectTask = 'dev.example.flutterApiClientExample.syncOnConnect';
 
-/// Name the running app registers so a background task can find it.
-const kSyncPort = 'fac.offline.syncNow';
-
 /// Sync activity, newest last, shown on the Offline sync tab.
 final _syncLines = ValueNotifier<List<String>>(const []);
 
@@ -129,6 +124,13 @@ typedef _OfflineSync = ({
 final Future<_OfflineSync> _offlineSync = _startOfflineSync();
 
 Future<_OfflineSync> _startOfflineSync() async {
+  // First, before the queue box is opened: a background task that fires while
+  // the app is alive must find it and wait for its sync, never open the box
+  // from a second isolate.
+  serveBackgroundSync(() async {
+    _syncLog('asked to sync by the background task');
+    return (await _offlineSync).sync.runOnce();
+  });
   final store = HiveOfflineQueueStore(await _openQueueBox());
   final client = buildSyncClient(store, onQueued: _syncWhenConnected);
   final sync = buildSync(
@@ -145,16 +147,6 @@ Future<_OfflineSync> _startOfflineSync() async {
   // whenever the app comes back to the foreground.
   AppLifecycleListener(onResume: sync.syncNow);
 
-  // A background task that fires while the app is alive pokes this port
-  // instead of opening the queue box from a second isolate.
-  final port = ReceivePort();
-  IsolateNameServer.removePortNameMapping(kSyncPort);
-  IsolateNameServer.registerPortWithName(port.sendPort, kSyncPort);
-  port.listen((_) {
-    _syncLog('poked by the background task');
-    sync.syncNow();
-  });
-
   await Workmanager().initialize(callbackDispatcher);
   await Workmanager().registerPeriodicTask(
     kSyncTask,
@@ -167,14 +159,15 @@ Future<_OfflineSync> _startOfflineSync() async {
 
 /// The periodic task can be up to 15 minutes away. So that a write queued just
 /// before the app is killed does not wait that long, ask Android for one run
-/// as soon as there is a network. (iOS offers nothing this prompt.)
+/// as soon as there is a network. (iOS has no network trigger: there a one-off
+/// task runs at once, while still offline.)
 void _syncWhenConnected(QueuedRequest _) {
   if (!Platform.isAndroid) return;
   Workmanager().registerOneOffTask(
     kSyncOnConnectTask,
     kSyncOnConnectTask,
     constraints: Constraints(networkType: NetworkType.connected),
-    // Safe to replace: while the app is alive a running task only pokes it.
+    // Safe to replace: while the app is alive a running task only asks it.
     existingWorkPolicy: ExistingWorkPolicy.replace,
   );
 }
@@ -189,11 +182,10 @@ void callbackDispatcher() {
 
 /// Runs in the background isolate. Returns `false` to ask the OS to retry.
 Future<bool> runBackgroundSync() async {
-  final mainApp = IsolateNameServer.lookupPortByName(kSyncPort);
-  if (mainApp != null) {
-    debugPrint('FAC_SYNC [background] app is alive, handing off');
-    mainApp.send('sync');
-    return true;
+  final handedOff = await syncInRunningApp();
+  if (handedOff != null) {
+    debugPrint('FAC_SYNC [background] app is alive, it synced: $handedOff');
+    return handedOff;
   }
   debugPrint('FAC_SYNC [background] app is terminated, syncing here');
   final box = await _openQueueBox();
