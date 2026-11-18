@@ -1,3 +1,25 @@
+## 1.10.1
+
+**Release Date**: 2026-11-18  
+**Type**: Patch Release (iOS background sync recipe)  
+**Breaking Changes**: None. No change under `lib/`.
+
+### Fixed
+
+* `BACKGROUND_SYNC.md` and the example: a background task that finds the app
+  alive now waits for the app's sync and returns its result. It used to report
+  success at once, and iOS suspends the app the moment a task completes, so
+  the sync was cut off before anything was sent.
+* The app registers its hand-off port before it opens the queue box, so a task
+  that fires during startup cannot open the box from a second isolate.
+
+### Documentation
+
+* `BACKGROUND_SYNC.md`: on iOS the Dart `frequency` and `constraints` are
+  ignored for the periodic task; a one-off task runs at once rather than
+  crashing (it stays Android-only); the `AppDelegate` snippet uses
+  `earliestBeginInSeconds:` in place of the deprecated `frequency:`.
+
 ## 1.10.0
 
 **Release Date**: 2026-11-17  
