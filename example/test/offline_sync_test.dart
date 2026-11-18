@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:typed_data';
+import 'dart:ui';
 
 import 'package:flutter_api_client/flutter_api_client.dart';
 import 'package:flutter_api_client_example/offline_sync.dart';
@@ -44,4 +46,26 @@ void main() {
       ]);
     },
   );
+
+  test('a background task waits for the running app to finish', () async {
+    expect(await syncInRunningApp(), isNull); // no app: the task owns the queue
+
+    var result = true;
+    final port = serveBackgroundSync(() async => result);
+    addTearDown(() {
+      port.close();
+      IsolateNameServer.removePortNameMapping(kSyncPort);
+    });
+    expect(await syncInRunningApp(), isTrue);
+    result = false; // work left: the task must report it, not claim success
+    expect(await syncInRunningApp(), isFalse);
+
+    // An app that never answers must not hold the task past its time budget.
+    final silent = serveBackgroundSync(() => Completer<bool>().future);
+    addTearDown(silent.close);
+    expect(
+      await syncInRunningApp(timeout: const Duration(milliseconds: 50)),
+      isFalse,
+    );
+  });
 }
