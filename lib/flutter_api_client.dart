@@ -136,3 +136,6 @@ export 'src/gen/api_spec_entry.dart';
 export 'src/graphql/graphql_client.dart';
 export 'src/graphql/graphql_error.dart';
 export 'src/graphql/graphql_response.dart';
+
+// WebSocket
+export 'src/websocket/websocket_client.dart';
