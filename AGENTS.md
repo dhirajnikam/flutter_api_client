@@ -18,7 +18,7 @@ A folder may import only folders to its left:
 
 ```
 core ← http ← interceptors (and its sub-folders) ← auth ← client ← graphql, offline
-spec → http only        gen → nothing
+spec → http only        gen → nothing        websocket → nothing
 ```
 
 - `lib/flutter_api_client.dart` is the only public library. It exports from every

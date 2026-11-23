@@ -408,6 +408,35 @@ mock.onRequest('POST', RegExp(r'/login$'), (req) async {
 
 **Design Decision**: Separate from `SpecMockAdapter` for fine-grained test control when you don't have a spec.
 
+## WebSocket
+
+### WebSocketClient
+
+**Location**: `lib/src/websocket/websocket_client.dart`
+
+A standalone client, independent of `ApiClient` and the interceptor chain (a
+socket is a long-lived connection, not a request/response pair). It imports
+nothing else from the package.
+
+**Flow**:
+1. `connect()` resolves the URL (`urlProvider` runs before every attempt, so a
+   fresh token can be appended), opens a `WebSocketConnection`, and waits for
+   `ready` within `connectTimeout`
+2. On open, messages queued while disconnected are flushed in order
+3. On a drop, `WebSocketReconnect` schedules the next attempt
+   (`baseDelay * 2^attempt`, capped at `maxDelay`, optional jitter) unless
+   `maxAttempts` or `shouldReconnect` says stop
+4. `WebSocketHeartbeat` pings after `interval` without traffic and drops the
+   connection when nothing arrives within `timeout`
+
+**Design Decision**: Every connection attempt gets a generation number. Timers
+and stream callbacks capture it and do nothing once it is stale, so an event
+from a superseded socket can never touch the current one.
+
+**Design Decision**: The transport is the small `WebSocketConnection`
+interface. The default wraps `package:web_socket_channel` (works on every
+platform including web); tests fake it without a network.
+
 ## Token Storage
 
 ### TokenStorage Interface
@@ -516,8 +545,7 @@ Aim: >90% line coverage
 
 ### Planned Enhancements
 
-1. **WebSocket adapter**: Full-duplex communication
-2. **Metrics**: Built-in telemetry (request counts, latency)
+1. **Metrics**: Built-in telemetry (request counts, latency)
 
 > Note: streaming downloads shipped in 1.1.0 via `ApiClient.stream()` /
 > `HttpStreamResponse`; offline-queue replay shipped via `OfflineQueueReplayer`.

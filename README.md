@@ -34,13 +34,14 @@ a Markdown API reference, and a backend implementation guide.
 10. [Cancel tokens](#cancel-tokens)
 11. [Multipart / file upload](#multipart--file-upload)
 12. [GraphQL](#graphql)
-13. [Spec-driven endpoints](#spec-driven-endpoints)
-14. [Testing with MockAdapter](#testing-with-mockadapter)
-15. [Pluggable transport](#pluggable-transport)
-16. [API reference](#api-reference)
-17. [Migration from 0.1.x](#migration-from-01x)
-18. [Test suite](#test-suite)
-19. [License](#license)
+13. [WebSocket](#websocket)
+14. [Spec-driven endpoints](#spec-driven-endpoints)
+15. [Testing with MockAdapter](#testing-with-mockadapter)
+16. [Pluggable transport](#pluggable-transport)
+17. [API reference](#api-reference)
+18. [Migration from 0.1.x](#migration-from-01x)
+19. [Test suite](#test-suite)
+20. [License](#license)
 
 ---
 
@@ -1417,6 +1418,71 @@ document out of the box — override `hashQuery` only for a custom registry.
 
 All `ApiClient` interceptors apply to GraphQL calls transparently because
 every operation routes through the standard HTTP layer.
+
+---
+
+## WebSocket
+
+`WebSocketClient` is a standalone client for long-lived connections. It
+reconnects on its own, keeps the connection alive with a heartbeat, queues
+messages sent while disconnected, and speaks JSON by default.
+
+```dart
+final ws = WebSocketClient<Object?>(
+  url: 'wss://api.example.com/live',
+  heartbeat: const WebSocketHeartbeat(interval: Duration(seconds: 30)),
+);
+
+ws.messages.listen((message) => print(message)); // decoded JSON
+ws.states.listen((state) => print(state));       // connecting, open, reconnecting, ...
+ws.errors.listen((error) => print(error));
+
+ws.connect();
+ws.send({'type': 'subscribe', 'channel': 'orders'}); // queued until open
+
+// later
+await ws.dispose();
+```
+
+**Authentication.** `urlProvider` runs before every connection attempt,
+including reconnects, so each one can carry a fresh token:
+
+```dart
+final ws = WebSocketClient<Object?>(
+  urlProvider: () async =>
+      'wss://api.example.com/live?token=${await storage.getAccessToken()}',
+  reconnect: WebSocketReconnect(
+    // Stop instead of hammering the server when it rejects the credentials.
+    shouldReconnect: (code, reason) => code != 4401,
+  ),
+);
+```
+
+**Typed messages.** Pass `decode` to turn each frame into your own type. The
+frame is a `String` for text and a `Uint8List` for binary:
+
+```dart
+final ws = WebSocketClient<OrderEvent>(
+  url: 'wss://api.example.com/orders',
+  decode: (frame) => OrderEvent.fromJson(
+    jsonDecode(frame as String) as Map<String, dynamic>,
+  ),
+);
+```
+
+A frame that fails to decode is reported on `errors`; the connection stays up.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `reconnect` | `WebSocketReconnect()` | Backoff `baseDelay * 2^attempt` (500 ms) capped at `maxDelay` (30 s), with jitter. `maxAttempts` and `shouldReconnect` stop it. `null` disables reconnecting. |
+| `heartbeat` | none | Sends `message` after `interval` without traffic; drops the connection if nothing arrives within `timeout`. Any incoming frame counts as the reply. |
+| `connectTimeout` | 15 s | A connection attempt that has not opened by then fails (and is retried). |
+| `maxQueue` | 100 | Messages kept while disconnected; the oldest are dropped. `0` disables queueing. |
+| `encode` / `decode` | JSON | Outgoing non-string values are JSON-encoded; incoming text is JSON-decoded, falling back to the raw string. |
+| `connector` | `web_socket_channel` | Supplies the transport. Return a fake `WebSocketConnection` in tests. |
+
+`close()` is final for that connection (no reconnect, queue dropped);
+`connect()` starts over. `dispose()` also closes the event streams.
 
 ---
 

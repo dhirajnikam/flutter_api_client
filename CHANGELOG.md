@@ -1,3 +1,24 @@
+## 1.11.0
+
+**Release Date**: 2026-11-23  
+**Type**: Minor Release (WebSocket client)  
+**Breaking Changes**: None.
+
+### Added
+
+* `WebSocketClient`: a WebSocket client with auto-reconnect (exponential
+  backoff with jitter, `maxAttempts`, `shouldReconnect`), a heartbeat that
+  drops a silent connection, a bounded queue for messages sent while
+  disconnected, a connect timeout, and JSON framing by default with pluggable
+  `encode` / `decode`. Events are broadcast streams: `messages`, `states`,
+  `errors`, `closes`.
+* `WebSocketConnection` / `WebSocketConnector`: the transport interface, for
+  custom transports and for tests without a network.
+
+### Dependencies
+
+* Adds `web_socket_channel` (`>=2.4.0 <4.0.0`).
+
 ## 1.10.1
 
 **Release Date**: 2026-11-18  

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_api_client/flutter_api_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
@@ -11,6 +12,29 @@ Uint8List _b(String s) => Uint8List.fromList(utf8.encode(s));
 ApiClient _client(MockAdapter mock) => ApiClient(
       ApiClientConfig.test(baseUrl: 'https://api.example.com', adapter: mock),
     );
+
+/// Runs an async test [body] in fake time. The retry tests wait on timers of
+/// tens of milliseconds, which in real time race the event loop and fail at
+/// random (`pumpEventQueue` alone can take longer than the retry delay).
+void _fakeTimeTest(String name, Future<void> Function() body) {
+  test(name, () {
+    fakeAsync((clock) {
+      var done = false;
+      Object? error;
+      StackTrace? stack;
+      body().then((_) => done = true, onError: (Object e, StackTrace s) {
+        error = e;
+        stack = s;
+        done = true;
+      });
+      for (var ms = 0; !done && ms < 60000; ms++) {
+        clock.elapse(const Duration(milliseconds: 1));
+      }
+      if (error != null) Error.throwWithStackTrace(error!, stack!);
+      expect(done, isTrue, reason: 'test body never finished');
+    });
+  });
+}
 
 void main() {
   group('OfflineSyncManager', () {
@@ -50,7 +74,8 @@ void main() {
       expect(await store.length, 0);
     });
 
-    test('schedules another pass while transient failures remain', () async {
+    _fakeTimeTest('schedules another pass while transient failures remain',
+        () async {
       final store = InMemoryOfflineQueueStore();
       await store.enqueue(QueuedRequest(
           id: 'flaky',
@@ -98,7 +123,7 @@ void main() {
       expect(await store.length, 0);
     });
 
-    test('going offline cancels the scheduled retry pass', () async {
+    _fakeTimeTest('going offline cancels the scheduled retry pass', () async {
       final store = InMemoryOfflineQueueStore();
       await store.enqueue(QueuedRequest(
           id: 'x',
@@ -219,7 +244,8 @@ void main() {
       expect(reports, hasLength(1));
     });
 
-    test('are skipped while uploads are still queued, then run on the retry',
+    _fakeTimeTest(
+        'are skipped while uploads are still queued, then run on the retry',
         () async {
       final store = InMemoryOfflineQueueStore();
       await store.enqueue(queued('flaky'));
@@ -255,7 +281,8 @@ void main() {
       expect(fetches, 1);
     });
 
-    test('a failing or throwing step stops the sequence and is retried',
+    _fakeTimeTest(
+        'a failing or throwing step stops the sequence and is retried',
         () async {
       final log = <String>[];
       var calls = 0;
