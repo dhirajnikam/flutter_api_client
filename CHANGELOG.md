@@ -1,5 +1,6 @@
-## 1.11.0 (unreleased)
+## 1.11.0
 
+**Release Date**: 2026-11-23  
 **Type**: Minor Release (WebSocket client)  
 **Breaking Changes**: None.
 
